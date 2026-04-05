@@ -382,7 +382,7 @@ const allColumnDefs: DataTableColumn<LedgerEntry>[] = [
 
 /** Columns visible to the user based on their current preference. */
 const visibleColumns = computed(() =>
-  allColumnDefs.filter((col) => visibleColumnKeys.value.includes(col.key as ColumnKey))
+  allColumnDefs.filter((col) => visibleColumnKeys.value.includes((col as { key?: ColumnKey }).key as ColumnKey))
 );
 
 // ─── Watchers ─────────────────────────────────────────────────────
