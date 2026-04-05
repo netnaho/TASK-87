@@ -23,6 +23,7 @@
     </PageHeader>
 
     <n-card class="mb-4">
+      <!-- ─── Filters grid ──────────────────────────────────────── -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         <n-date-picker
           v-model:value="dateRange"
@@ -58,6 +59,14 @@
           clearable
           filterable
         />
+        <!-- Lot filter — drives lotId query param -->
+        <n-select
+          v-model:value="filters.lotId"
+          :options="lotOptions"
+          placeholder="Lot"
+          clearable
+          filterable
+        />
         <n-select
           v-model:value="filters.sortField"
           :options="sortFieldOptions"
@@ -72,6 +81,19 @@
           </n-radio-group>
         </div>
       </div>
+
+      <!-- ─── Column visibility selector ──────────────────────────── -->
+      <div class="flex items-center gap-3 mt-3">
+        <span class="text-sm text-gray-500 whitespace-nowrap">Columns:</span>
+        <n-select
+          v-model:value="visibleColumnKeys"
+          :options="columnOptions"
+          multiple
+          placeholder="Select visible columns"
+          style="min-width: 280px"
+        />
+      </div>
+
       <div class="flex justify-end gap-2 mt-3">
         <n-button @click="resetFilters">Reset</n-button>
         <n-button type="primary" @click="applyFilters">
@@ -83,7 +105,7 @@
 
     <n-card>
       <n-data-table
-        :columns="columns"
+        :columns="visibleColumns"
         :data="ledgerData"
         :loading="loading"
         :pagination="paginationConfig"
@@ -125,7 +147,7 @@ import { usePagination } from '../../composables/usePagination';
 import { useAppMessage } from '../../composables/useAppMessage';
 import PageHeader from '../../components/shared/PageHeader.vue';
 import EmptyState from '../../components/shared/EmptyState.vue';
-import type { LedgerEntry } from '../../types';
+import type { LedgerEntry, Lot } from '../../types';
 
 const { successMsg, errorMsg } = useAppMessage();
 const { locationOptions, loadLocations } = useLocations();
@@ -138,11 +160,30 @@ const exporting = ref(false);
 const ledgerData = ref<LedgerEntry[]>([]);
 const dateRange = ref<[number, number] | null>(null);
 
+// ─── Lot data ─────────────────────────────────────────────────────
+const lots = ref<Lot[]>([]);
+const lotOptions = computed(() =>
+  lots.value.map((l) => ({
+    label: l.item?.name ? `${l.lotNumber} — ${l.item.name}` : l.lotNumber,
+    value: l.id,
+  }))
+);
+
+async function loadLots() {
+  try {
+    lots.value = await inventoryApi.listLots();
+  } catch {
+    // non-critical; lot filter just shows empty if this fails
+  }
+}
+
+// ─── Filters ──────────────────────────────────────────────────────
 const filters = reactive({
   movementType: null as string | null,
   itemId: null as number | null,
   locationId: null as number | null,
   vendorId: null as number | null,
+  lotId: null as number | null,
   sortField: null as string | null,
   sortDir: 'desc' as 'asc' | 'desc',
   startDate: undefined as string | undefined,
@@ -171,7 +212,82 @@ const movementTypeColor: Record<string, 'success' | 'warning' | 'info' | 'defaul
   ADJUSTMENT: 'error',
 };
 
-const columns = computed((): DataTableColumn<LedgerEntry>[] => [
+// ─── Column visibility ────────────────────────────────────────────
+const STORAGE_KEY = 'harborops:ledger:visibleColumns';
+
+type ColumnKey =
+  | 'referenceNumber'
+  | 'createdAt'
+  | 'movementType'
+  | 'item'
+  | 'fromLocation'
+  | 'toLocation'
+  | 'quantity'
+  | 'unitCostUsd'
+  | 'vendor'
+  | 'lot'
+  | 'performer'
+  | 'notes';
+
+const ALL_COLUMN_KEYS: ColumnKey[] = [
+  'referenceNumber',
+  'createdAt',
+  'movementType',
+  'item',
+  'fromLocation',
+  'toLocation',
+  'quantity',
+  'unitCostUsd',
+  'vendor',
+  'lot',
+  'performer',
+  'notes',
+];
+
+const columnLabels: Record<ColumnKey, string> = {
+  referenceNumber: 'Reference #',
+  createdAt: 'Date',
+  movementType: 'Type',
+  item: 'Item',
+  fromLocation: 'From Location',
+  toLocation: 'To Location',
+  quantity: 'Qty',
+  unitCostUsd: 'Unit Cost',
+  vendor: 'Vendor',
+  lot: 'Lot',
+  performer: 'Performed By',
+  notes: 'Notes',
+};
+
+/** Load from localStorage, falling back to all columns. */
+function loadColumnPrefs(): ColumnKey[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((k): k is ColumnKey => ALL_COLUMN_KEYS.includes(k as ColumnKey));
+        if (valid.length > 0) return valid;
+      }
+    }
+  } catch { /* ignore parse errors */ }
+  return [...ALL_COLUMN_KEYS];
+}
+
+const visibleColumnKeys = ref<ColumnKey[]>(loadColumnPrefs());
+
+// Persist whenever the selection changes.
+watch(visibleColumnKeys, (val) => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(val));
+});
+
+const columnOptions = ALL_COLUMN_KEYS.map((k) => ({
+  label: columnLabels[k],
+  value: k,
+}));
+
+// ─── All column definitions ──────────────────────────────────────
+const allColumnDefs: DataTableColumn<LedgerEntry>[] = [
   {
     title: 'Reference #',
     key: 'referenceNumber',
@@ -262,8 +378,14 @@ const columns = computed((): DataTableColumn<LedgerEntry>[] => [
       );
     },
   },
-]);
+];
 
+/** Columns visible to the user based on their current preference. */
+const visibleColumns = computed(() =>
+  allColumnDefs.filter((col) => visibleColumnKeys.value.includes(col.key as ColumnKey))
+);
+
+// ─── Watchers ─────────────────────────────────────────────────────
 watch([page, pageSize], () => {
   loadLedger();
 });
@@ -278,6 +400,7 @@ watch(dateRange, (val) => {
   }
 });
 
+// ─── Data loading ─────────────────────────────────────────────────
 async function loadLedger() {
   loading.value = true;
   try {
@@ -289,6 +412,7 @@ async function loadLedger() {
     if (filters.itemId != null) params.itemId = filters.itemId;
     if (filters.locationId != null) params.locationId = filters.locationId;
     if (filters.vendorId != null) params.vendorId = filters.vendorId;
+    if (filters.lotId != null) params.lotId = filters.lotId;
     if (filters.sortField) params.sortField = filters.sortField;
     if (filters.sortDir) params.sortDir = filters.sortDir;
     if (filters.startDate) params.startDate = filters.startDate;
@@ -315,6 +439,7 @@ function resetFilters() {
   filters.itemId = null;
   filters.locationId = null;
   filters.vendorId = null;
+  filters.lotId = null;
   filters.sortField = null;
   filters.sortDir = 'desc';
   filters.startDate = undefined;
@@ -331,6 +456,7 @@ async function exportLedger(format: 'csv' | 'excel') {
     if (filters.itemId != null) params.itemId = filters.itemId;
     if (filters.locationId != null) params.locationId = filters.locationId;
     if (filters.vendorId != null) params.vendorId = filters.vendorId;
+    if (filters.lotId != null) params.lotId = filters.lotId;
     if (filters.startDate) params.startDate = filters.startDate;
     if (filters.endDate) params.endDate = filters.endDate;
 
@@ -353,7 +479,7 @@ async function exportLedger(format: 'csv' | 'excel') {
 }
 
 onMounted(async () => {
-  await Promise.all([loadLocations(), loadItems(), loadVendors()]);
+  await Promise.all([loadLocations(), loadItems(), loadVendors(), loadLots()]);
   await loadLedger();
 });
 </script>

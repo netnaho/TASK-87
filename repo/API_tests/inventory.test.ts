@@ -115,6 +115,100 @@ describe('Inventory API', () => {
     });
   });
 
+  // ─── Barcode lookup and barcode-based movements ────────────────
+
+  describe('Barcode support', () => {
+    it('GET /api/inventory/items/by-barcode/:barcode returns item for valid barcode', async () => {
+      const res = await api
+        .get('/api/inventory/items/by-barcode/4901234567001')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.sku).toBe('MNT-BAT-001');
+      expect(res.body.data.barcode).toBe('4901234567001');
+    });
+
+    it('GET /api/inventory/items/by-barcode/:barcode returns 400 for unknown barcode', async () => {
+      const res = await api
+        .get('/api/inventory/items/by-barcode/UNKNOWN_BARCODE')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .expect(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('BARCODE_NOT_FOUND');
+    });
+
+    it('POST /api/inventory/receive works with barcode instead of itemId', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          barcode: '4901234567002',
+          locationId: firstLocationId,
+          quantity: 10,
+        })
+        .expect(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.movementType).toBe('RECEIVING');
+      expect(res.body.data.item.sku).toBe('LIN-TWL-001');
+    });
+
+    it('POST /api/inventory/issue works with barcode instead of itemId', async () => {
+      // First receive stock via barcode to ensure availability
+      await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          barcode: '4901234567001',
+          locationId: firstLocationId,
+          quantity: 20,
+        })
+        .expect(201);
+
+      const res = await api
+        .post('/api/inventory/issue')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          barcode: '4901234567001',
+          locationId: firstLocationId,
+          quantity: 1,
+        })
+        .expect(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.movementType).toBe('ISSUE');
+    });
+
+    it('POST /api/inventory/transfer works with barcode instead of itemId', async () => {
+      const res = await api
+        .post('/api/inventory/transfer')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          barcode: '4901234567001',
+          fromLocationId: firstLocationId,
+          toLocationId: secondLocationId,
+          quantity: 1,
+        })
+        .expect(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.movementType).toBe('TRANSFER');
+    });
+
+    it('POST /api/inventory/receive rejects unknown barcode', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          barcode: 'NONEXISTENT',
+          locationId: firstLocationId,
+          quantity: 10,
+        })
+        .expect(400);
+      expect(res.body.error.code).toBe('BARCODE_NOT_FOUND');
+    });
+  });
+
   // ─── Movement workflows ───────────────────────────────────────
 
   describe('Movement workflows - happy path', () => {
@@ -443,6 +537,73 @@ describe('Inventory API', () => {
   });
 
   // ─── Ledger query & exports ───────────────────────────────────
+
+  describe('Movement response cost masking', () => {
+    it('non-admin (clerk) receive response has unitCostUsd null', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          itemId: firstItemId,
+          locationId: firstLocationId,
+          quantity: 5,
+          unitCostUsd: 19.99,
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.unitCostUsd).toBeNull();
+    });
+
+    it('admin receive response exposes unitCostUsd', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          vendorId: firstVendorId,
+          itemId: firstItemId,
+          locationId: firstLocationId,
+          quantity: 5,
+          unitCostUsd: 19.99,
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(Number(res.body.data.unitCostUsd)).toBeCloseTo(19.99, 2);
+    });
+
+    it('non-admin (manager) issue response has unitCostUsd null', async () => {
+      const res = await api
+        .post('/api/inventory/issue')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({
+          itemId: firstItemId,
+          locationId: firstLocationId,
+          quantity: 1,
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.unitCostUsd).toBeNull();
+    });
+
+    it('non-admin (clerk) transfer response has unitCostUsd null', async () => {
+      const res = await api
+        .post('/api/inventory/transfer')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          itemId: firstItemId,
+          fromLocationId: firstLocationId,
+          toLocationId: secondLocationId,
+          quantity: 1,
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.unitCostUsd).toBeNull();
+    });
+  });
 
   describe('Ledger query and exports', () => {
     it('GET /api/inventory/ledger returns paginated entries (MANAGER)', async () => {

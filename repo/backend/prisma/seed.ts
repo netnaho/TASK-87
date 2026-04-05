@@ -13,7 +13,10 @@ async function main() {
 
   // Clean up ephemeral test data on each startup for idempotent test runs
   await prisma.rateLimitLog.deleteMany({});
-  console.log('Cleared rate limit logs');
+  await prisma.creditHistory.deleteMany({});
+  await prisma.taskRating.deleteMany({});
+  await prisma.scheduledReport.deleteMany({});
+  console.log('Cleared ephemeral test data');
 
   // Create demo users for every role
   const demoUsers = [
@@ -49,6 +52,31 @@ async function main() {
     }
   }
 
+  // Seed service interactions for trust rating
+  const guestUser = await prisma.user.findUnique({ where: { username: 'guest' } });
+  const hostUser = await prisma.user.findUnique({ where: { username: 'host' } });
+  const clerkUser = await prisma.user.findUnique({ where: { username: 'clerk' } });
+  const managerUser = await prisma.user.findUnique({ where: { username: 'manager' } });
+
+  if (guestUser && hostUser && clerkUser && managerUser) {
+    const interactions = [
+      { requesterId: guestUser.id, providerId: hostUser.id, status: 'COMPLETED' as const, description: 'Guest stay at Bayfront', completedAt: new Date() },
+      { requesterId: hostUser.id, providerId: clerkUser.id, status: 'COMPLETED' as const, description: 'Inventory restocking task', completedAt: new Date() },
+      { requesterId: guestUser.id, providerId: clerkUser.id, status: 'IN_PROGRESS' as const, description: 'Ongoing maintenance request', completedAt: null },
+      { requesterId: managerUser.id, providerId: hostUser.id, status: 'COMPLETED' as const, description: 'Property inspection', completedAt: new Date() },
+    ];
+
+    for (const ix of interactions) {
+      const existing = await prisma.serviceInteraction.findFirst({
+        where: { requesterId: ix.requesterId, providerId: ix.providerId, description: ix.description },
+      });
+      if (!existing) {
+        await prisma.serviceInteraction.create({ data: ix });
+        console.log(`Created interaction: ${ix.description}`);
+      }
+    }
+  }
+
   // Create demo locations
   const locations = [
     { name: 'Downtown Warehouse', address: '100 Harbor Blvd, Suite A' },
@@ -66,14 +94,14 @@ async function main() {
 
   // Create demo items
   const items = [
-    { name: 'Door Lock Battery Pack', sku: 'MNT-BAT-001', category: 'Maintenance', description: '4-pack AA batteries for electronic door locks', isLotControlled: false, unitOfMeasure: 'PK', unitPrice: 4.99 },
-    { name: 'Bath Towels - White', sku: 'LIN-TWL-001', category: 'Linens', description: 'Standard white bath towels, 27x54 inches', isLotControlled: false, unitOfMeasure: 'EA', unitPrice: 8.50 },
-    { name: 'Shampoo Bottles', sku: 'AMN-SHP-001', category: 'Amenities', description: 'Travel-size shampoo 50ml bottles', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 1.25 },
-    { name: 'Pillow Cases - Queen', sku: 'LIN-PIL-001', category: 'Linens', description: 'Queen size pillow cases, 20x30 inches', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 3.75 },
-    { name: 'Hand Soap Dispenser Refill', sku: 'AMN-SOP-001', category: 'Amenities', description: 'Hand soap 500ml refill packs', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 2.50 },
-    { name: 'Light Bulbs LED', sku: 'MNT-LED-001', category: 'Maintenance', description: '60W equivalent LED bulbs, soft white', isLotControlled: false, unitOfMeasure: 'EA', unitPrice: 3.25 },
-    { name: 'Bed Sheets - King', sku: 'LIN-SHT-001', category: 'Linens', description: 'King size flat sheets, 300 thread count', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 15.00 },
-    { name: 'Coffee Pods - Assorted', sku: 'AMN-COF-001', category: 'Amenities', description: 'Assorted coffee pods, box of 24', isLotControlled: true, unitOfMeasure: 'BX', unitPrice: 12.99 },
+    { name: 'Door Lock Battery Pack', sku: 'MNT-BAT-001', barcode: '4901234567001', category: 'Maintenance', description: '4-pack AA batteries for electronic door locks', isLotControlled: false, unitOfMeasure: 'PK', unitPrice: 4.99 },
+    { name: 'Bath Towels - White', sku: 'LIN-TWL-001', barcode: '4901234567002', category: 'Linens', description: 'Standard white bath towels, 27x54 inches', isLotControlled: false, unitOfMeasure: 'EA', unitPrice: 8.50 },
+    { name: 'Shampoo Bottles', sku: 'AMN-SHP-001', barcode: '4901234567003', category: 'Amenities', description: 'Travel-size shampoo 50ml bottles', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 1.25 },
+    { name: 'Pillow Cases - Queen', sku: 'LIN-PIL-001', barcode: '4901234567004', category: 'Linens', description: 'Queen size pillow cases, 20x30 inches', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 3.75 },
+    { name: 'Hand Soap Dispenser Refill', sku: 'AMN-SOP-001', barcode: '4901234567005', category: 'Amenities', description: 'Hand soap 500ml refill packs', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 2.50 },
+    { name: 'Light Bulbs LED', sku: 'MNT-LED-001', barcode: '4901234567006', category: 'Maintenance', description: '60W equivalent LED bulbs, soft white', isLotControlled: false, unitOfMeasure: 'EA', unitPrice: 3.25 },
+    { name: 'Bed Sheets - King', sku: 'LIN-SHT-001', barcode: '4901234567007', category: 'Linens', description: 'King size flat sheets, 300 thread count', isLotControlled: true, unitOfMeasure: 'EA', unitPrice: 15.00 },
+    { name: 'Coffee Pods - Assorted', sku: 'AMN-COF-001', barcode: '4901234567008', category: 'Amenities', description: 'Assorted coffee pods, box of 24', isLotControlled: true, unitOfMeasure: 'BX', unitPrice: 12.99 },
   ];
 
   for (const item of items) {
@@ -81,6 +109,9 @@ async function main() {
     if (!existing) {
       await prisma.item.create({ data: item });
       console.log(`Created item: ${item.name}`);
+    } else if (!existing.barcode && item.barcode) {
+      await prisma.item.update({ where: { id: existing.id }, data: { barcode: item.barcode } });
+      console.log(`Updated barcode for item: ${item.name}`);
     }
   }
 

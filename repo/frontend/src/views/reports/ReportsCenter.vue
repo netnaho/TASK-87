@@ -126,6 +126,26 @@
 
       <!-- ─── Tab 3: Scheduled Reports ────────────────────────────────────── -->
       <n-tab-pane name="scheduled" tab="Scheduled Reports">
+        <n-card title="Schedule New Report" class="mb-4">
+          <n-space align="center">
+            <n-select
+              v-model:value="scheduleForm.reportType"
+              :options="reportTypeOptions"
+              placeholder="Report type"
+              style="width: 220px"
+            />
+            <n-date-picker
+              v-model:value="scheduleForm.scheduledFor"
+              type="datetime"
+              placeholder="Scheduled time"
+              style="width: 240px"
+            />
+            <n-button type="primary" :loading="scheduleSubmitting" @click="submitSchedule">
+              Schedule Report
+            </n-button>
+          </n-space>
+        </n-card>
+
         <n-spin :show="schedLoading">
           <n-data-table
             v-if="scheduledReports.length > 0"
@@ -154,6 +174,10 @@ import {
   NTag,
   NSkeleton,
   NStatistic,
+  NSelect,
+  NDatePicker,
+  NButton,
+  NSpace,
 } from 'naive-ui';
 import type { DataTableColumn } from 'naive-ui';
 import {
@@ -170,7 +194,7 @@ import EmptyState from '../../components/shared/EmptyState.vue';
 import StatCard from '../../components/shared/StatCard.vue';
 import type { KpiDaily, ReviewEfficiencyReport, ScheduledReport } from '../../types';
 
-const { errorMsg } = useAppMessage();
+const { errorMsg, successMsg } = useAppMessage();
 
 const activeTab = ref('kpi');
 
@@ -382,8 +406,8 @@ async function loadScheduled() {
 function scheduledStatusTagType(status: string): 'default' | 'info' | 'success' | 'error' | 'warning' {
   const map: Record<string, 'default' | 'info' | 'success' | 'error' | 'warning'> = {
     PENDING: 'warning',
-    RUNNING: 'info',
-    COMPLETED: 'success',
+    PROCESSING: 'info',
+    READY: 'success',
     FAILED: 'error',
   };
   return map[status] ?? 'default';
@@ -415,11 +439,11 @@ const scheduledColumns: DataTableColumn<ScheduledReport>[] = [
     title: 'File',
     key: 'filePath',
     render: (row) => {
-      if (!row.filePath) return '—';
+      if (row.status !== 'READY') return '—';
       return h(
         'a',
         {
-          href: row.filePath,
+          href: reportsApi.getDownloadUrl(row.id),
           target: '_blank',
           rel: 'noopener',
           style: 'color: #3b82f6; text-decoration: underline',
@@ -429,6 +453,37 @@ const scheduledColumns: DataTableColumn<ScheduledReport>[] = [
     },
   },
 ];
+
+// ─── Schedule Form ───────────────────────────────────────────────────────────
+const reportTypeOptions = [
+  { label: 'KPI Summary', value: 'KPI_SUMMARY' },
+  { label: 'Review Efficiency', value: 'REVIEW_EFFICIENCY' },
+  { label: 'Inventory Snapshot', value: 'INVENTORY_SNAPSHOT' },
+];
+
+const scheduleForm = ref<{ reportType: string | null; scheduledFor: number | null }>({
+  reportType: null,
+  scheduledFor: null,
+});
+const scheduleSubmitting = ref(false);
+
+async function submitSchedule() {
+  if (!scheduleForm.value.reportType || !scheduleForm.value.scheduledFor) return;
+  scheduleSubmitting.value = true;
+  try {
+    await reportsApi.createScheduledReport({
+      reportType: scheduleForm.value.reportType,
+      scheduledFor: new Date(scheduleForm.value.scheduledFor).toISOString(),
+    });
+    successMsg('Report scheduled successfully');
+    scheduleForm.value = { reportType: null, scheduledFor: null };
+    await loadScheduled();
+  } catch (err: any) {
+    errorMsg(err);
+  } finally {
+    scheduleSubmitting.value = false;
+  }
+}
 
 // ─── Tab load ─────────────────────────────────────────────────────────────────
 watch(activeTab, (tab) => {

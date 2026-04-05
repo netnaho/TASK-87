@@ -5,10 +5,25 @@ A production-grade full-stack application for property companies managing multip
 ## Start Command
 
 ```bash
+# 1. Create .env from the template and fill in real secret values
+cp .env.example .env
+#    Edit .env — set JWT_SECRET and ENCRYPTION_KEY to unique random strings.
+#    Generate each with: openssl rand -hex 32
+
+# 2. Start the stack
 docker compose up
 ```
 
-No manual setup, no `.env` file, no database imports. Everything initializes automatically.
+The database is created and seeded automatically on first startup.
+
+> **Security note:** `JWT_SECRET` and `ENCRYPTION_KEY` must be set in `.env` (or injected
+> as environment variables) before starting. The backend refuses to start if either secret is
+> missing — **in any environment**, including development — unless
+> `ALLOW_INSECURE_DEV_SECRETS=true` is also set. That flag enables hardcoded insecure
+> fallback values for local development convenience only; it is explicitly blocked in
+> production (`NODE_ENV=production`) and triggers a loud warning on every startup.
+> Never commit `.env` to version control, and never set `ALLOW_INSECURE_DEV_SECRETS=true`
+> in staging or production.
 
 ## Service Addresses
 

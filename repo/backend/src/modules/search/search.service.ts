@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { cache } from '../../lib/cache';
@@ -36,52 +37,58 @@ export class SearchService {
     let total: number;
 
     if (q && q.trim().length > 0) {
-      // Use MySQL full-text search
+      // Full-text search with dynamic WHERE and ORDER BY using Prisma.sql fragments
       const sanitized = q.trim().replace(/[+\-><\(\)~*\"@]+/g, ' ').trim();
       const ftQuery = sanitized.split(/\s+/).filter(Boolean).map((w) => `+${w}*`).join(' ');
 
-      // Full-text search returns items sorted by relevance; we need total separately
-      // Use prisma.$queryRaw for MATCH AGAINST; split on category to avoid nested queryRaw
-      let rawItems: any[];
-      let countResult: [{ cnt: bigint }];
+      // Build WHERE conditions — all values are safely parameterized
+      const ftConditions: Prisma.Sql[] = [
+        Prisma.sql`i.is_active = 1`,
+        Prisma.sql`MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE)`,
+      ];
       if (category) {
-        rawItems = await prisma.$queryRaw<any[]>`
-          SELECT i.id, i.name, i.sku, i.category, i.description,
-                 i.is_lot_controlled, i.unit_of_measure, i.unit_price,
-                 i.is_active, i.created_at, i.updated_at,
-                 MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE) AS relevance_score
-          FROM items i
-          WHERE i.is_active = 1
-            AND i.category = ${category}
-            AND MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE)
-          ORDER BY relevance_score DESC
-          LIMIT ${pageSize} OFFSET ${skip}
-        `;
-        countResult = await prisma.$queryRaw<[{ cnt: bigint }]>`
-          SELECT COUNT(*) as cnt FROM items i
-          WHERE i.is_active = 1
-            AND i.category = ${category}
-            AND MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE)
-        `;
-      } else {
-        rawItems = await prisma.$queryRaw<any[]>`
-          SELECT i.id, i.name, i.sku, i.category, i.description,
-                 i.is_lot_controlled, i.unit_of_measure, i.unit_price,
-                 i.is_active, i.created_at, i.updated_at,
-                 MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE) AS relevance_score
-          FROM items i
-          WHERE i.is_active = 1
-            AND MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE)
-          ORDER BY relevance_score DESC
-          LIMIT ${pageSize} OFFSET ${skip}
-        `;
-        countResult = await prisma.$queryRaw<[{ cnt: bigint }]>`
-          SELECT COUNT(*) as cnt FROM items i
-          WHERE i.is_active = 1
-            AND MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE)
-        `;
+        ftConditions.push(Prisma.sql`i.category = ${category}`);
       }
-      total = Number(countResult[0].cnt);
+      if (attributeName && attributeValue) {
+        ftConditions.push(Prisma.sql`EXISTS (
+          SELECT 1 FROM product_attributes pa
+          WHERE pa.item_id = i.id
+            AND pa.attribute_name = ${attributeName}
+            AND pa.attribute_value = ${attributeValue}
+        )`);
+      }
+      const ftWhere = Prisma.join(ftConditions, ' AND ');
+
+      // ORDER BY: explicit sortBy overrides relevance default
+      const safeDir = sortDir === 'desc' ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+      let ftOrder: Prisma.Sql;
+      if (params.sortBy === 'price') {
+        ftOrder = Prisma.sql`i.unit_price ${safeDir}`;
+      } else if (params.sortBy === 'date') {
+        ftOrder = Prisma.sql`i.created_at ${safeDir}`;
+      } else if (params.sortBy === 'name') {
+        ftOrder = Prisma.sql`i.name ${safeDir}`;
+      } else {
+        // Default for full-text: rank by relevance
+        ftOrder = Prisma.sql`relevance_score DESC`;
+      }
+
+      const rawItems = await prisma.$queryRaw<any[]>(Prisma.sql`
+        SELECT i.id, i.name, i.sku, i.category, i.description,
+               i.is_lot_controlled, i.unit_of_measure, i.unit_price,
+               i.is_active, i.created_at, i.updated_at,
+               MATCH(i.name, i.description, i.sku) AGAINST(${ftQuery} IN BOOLEAN MODE) AS relevance_score
+        FROM items i
+        WHERE ${ftWhere}
+        ORDER BY ${ftOrder}
+        LIMIT ${pageSize} OFFSET ${skip}
+      `);
+
+      const [countRow] = await prisma.$queryRaw<[{ cnt: bigint }]>(Prisma.sql`
+        SELECT COUNT(*) as cnt FROM items i
+        WHERE ${ftWhere}
+      `);
+      total = Number(countRow.cnt);
 
       // Attach productAttributes
       const ids = rawItems.map((r: any) => r.id);

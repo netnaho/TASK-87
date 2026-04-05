@@ -24,6 +24,19 @@ function businessError(code: string, message: string, statusCode: number): never
   throw Object.assign(new Error(message), { statusCode, code });
 }
 
+async function resolveItemId(input: { itemId?: number; barcode?: string }): Promise<number> {
+  if (input.barcode) {
+    const item = await prisma.item.findUnique({ where: { barcode: input.barcode } });
+    if (!item) businessError('BARCODE_NOT_FOUND', `No item found for barcode: ${input.barcode}`, 400);
+    if (input.itemId && input.itemId !== item!.id) {
+      businessError('BARCODE_MISMATCH', 'Barcode does not match the provided itemId', 400);
+    }
+    return item!.id;
+  }
+  if (input.itemId) return input.itemId;
+  businessError('MISSING_ITEM', 'Either itemId or barcode is required', 400);
+}
+
 const LEDGER_INCLUDE = {
   item: { select: { name: true, sku: true } },
   lot: { select: { lotNumber: true } },
@@ -154,6 +167,18 @@ class InventoryService {
     return item;
   }
 
+  async getItemByBarcode(barcode: string) {
+    const item = await prisma.item.findUnique({
+      where: { barcode },
+      include: {
+        stockLevels: { include: { location: true, lot: true } },
+        lots: true,
+      },
+    });
+    if (!item) businessError('BARCODE_NOT_FOUND', `No item found for barcode: ${barcode}`, 400);
+    return item;
+  }
+
   async updateItem(id: number, input: UpdateItemInput) {
     return prisma.item.update({ where: { id }, data: input });
   }
@@ -227,18 +252,23 @@ class InventoryService {
   // ─── Movements ───────────────────────────────────────────────
 
   async receive(input: ReceiveInput, performedBy: number) {
-    const item = await prisma.item.findUnique({ where: { id: input.itemId } });
+    const itemId = await resolveItemId(input);
+    const item = await prisma.item.findUnique({ where: { id: itemId } });
     if (!item) businessError('NOT_FOUND', 'Item not found', 404);
     if (item!.isLotControlled && !input.lotNumber) {
       businessError('LOT_REQUIRED', 'Lot number required for lot-controlled item', 422);
+    }
+    // requiresExpiration is independent of lot control — it mandates traceability of perishables.
+    if (item!.requiresExpiration && !input.expirationDate) {
+      businessError('EXPIRATION_REQUIRED', 'Expiration date required for this item', 422);
     }
 
     let lotId: number | null = null;
     if (input.lotNumber) {
       const lot = await prisma.lot.upsert({
-        where: { itemId_lotNumber: { itemId: input.itemId, lotNumber: input.lotNumber } },
+        where: { itemId_lotNumber: { itemId, lotNumber: input.lotNumber } },
         create: {
-          itemId: input.itemId,
+          itemId,
           lotNumber: input.lotNumber,
           expirationDate: input.expirationDate ? new Date(input.expirationDate) : null,
         },
@@ -249,7 +279,7 @@ class InventoryService {
 
     // Upsert stock level using findFirst + create/update for reliable null lotId handling
     const existingLevel = await prisma.stockLevel.findFirst({
-      where: { itemId: input.itemId, locationId: input.locationId, lotId },
+      where: { itemId, locationId: input.locationId, lotId },
     });
 
     if (existingLevel) {
@@ -260,7 +290,7 @@ class InventoryService {
     } else {
       await prisma.stockLevel.create({
         data: {
-          itemId: input.itemId,
+          itemId,
           locationId: input.locationId,
           lotId,
           onHand: input.quantity,
@@ -272,7 +302,7 @@ class InventoryService {
 
     const ledgerEntry = await prisma.inventoryLedger.create({
       data: {
-        itemId: input.itemId,
+        itemId,
         lotId,
         toLocationId: input.locationId,
         movementType: 'RECEIVING',
@@ -288,19 +318,20 @@ class InventoryService {
       include: LEDGER_INCLUDE,
     });
 
-    logger.info({ ledgerId: ledgerEntry.id, itemId: input.itemId, qty: input.quantity }, 'Stock received');
+    logger.info({ ledgerId: ledgerEntry.id, itemId, qty: input.quantity }, 'Stock received');
     return ledgerEntry;
   }
 
   async issue(input: IssueInput, performedBy: number) {
-    const item = await prisma.item.findUnique({ where: { id: input.itemId } });
+    const itemId = await resolveItemId(input);
+    const item = await prisma.item.findUnique({ where: { id: itemId } });
     if (!item) businessError('NOT_FOUND', 'Item not found', 404);
     if (item!.isLotControlled && !input.lotId) {
       businessError('LOT_REQUIRED', 'Lot ID required for lot-controlled item', 422);
     }
 
     const stockLevel = await prisma.stockLevel.findFirst({
-      where: { itemId: input.itemId, locationId: input.locationId, lotId: input.lotId ?? null },
+      where: { itemId, locationId: input.locationId, lotId: input.lotId ?? null },
     });
     if (!stockLevel) businessError('NOT_FOUND', 'Stock level not found for this item/location', 404);
     if (stockLevel!.onHand < input.quantity) {
@@ -314,7 +345,7 @@ class InventoryService {
 
     const ledgerEntry = await prisma.inventoryLedger.create({
       data: {
-        itemId: input.itemId,
+        itemId,
         lotId: input.lotId ?? null,
         fromLocationId: input.locationId,
         movementType: 'ISSUE',
@@ -326,7 +357,7 @@ class InventoryService {
       include: LEDGER_INCLUDE,
     });
 
-    logger.info({ ledgerId: ledgerEntry.id, itemId: input.itemId, qty: input.quantity }, 'Stock issued');
+    logger.info({ ledgerId: ledgerEntry.id, itemId, qty: input.quantity }, 'Stock issued');
     return ledgerEntry;
   }
 
@@ -335,7 +366,8 @@ class InventoryService {
       businessError('INVALID_TRANSFER', 'Source and destination locations must be different', 422);
     }
 
-    const item = await prisma.item.findUnique({ where: { id: input.itemId } });
+    const itemId = await resolveItemId(input);
+    const item = await prisma.item.findUnique({ where: { id: itemId } });
     if (!item) businessError('NOT_FOUND', 'Item not found', 404);
     if (item!.isLotControlled && !input.lotId) {
       businessError('LOT_REQUIRED', 'Lot ID required for lot-controlled item', 422);
@@ -343,7 +375,7 @@ class InventoryService {
 
     const ledgerEntry = await prisma.$transaction(async (tx) => {
       const source = await tx.stockLevel.findFirst({
-        where: { itemId: input.itemId, locationId: input.fromLocationId, lotId: input.lotId ?? null },
+        where: { itemId, locationId: input.fromLocationId, lotId: input.lotId ?? null },
       });
       if (!source) {
         businessError('NOT_FOUND', 'Source stock level not found', 404);
@@ -358,7 +390,7 @@ class InventoryService {
       });
 
       const destExisting = await tx.stockLevel.findFirst({
-        where: { itemId: input.itemId, locationId: input.toLocationId, lotId: input.lotId ?? null },
+        where: { itemId, locationId: input.toLocationId, lotId: input.lotId ?? null },
       });
 
       if (destExisting) {
@@ -369,7 +401,7 @@ class InventoryService {
       } else {
         await tx.stockLevel.create({
           data: {
-            itemId: input.itemId,
+            itemId,
             locationId: input.toLocationId,
             lotId: input.lotId ?? null,
             onHand: input.quantity,
@@ -381,7 +413,7 @@ class InventoryService {
 
       return tx.inventoryLedger.create({
         data: {
-          itemId: input.itemId,
+          itemId,
           lotId: input.lotId ?? null,
           fromLocationId: input.fromLocationId,
           toLocationId: input.toLocationId,
@@ -395,7 +427,7 @@ class InventoryService {
       });
     });
 
-    logger.info({ ledgerId: ledgerEntry.id, itemId: input.itemId, qty: input.quantity }, 'Stock transferred');
+    logger.info({ ledgerId: ledgerEntry.id, itemId, qty: input.quantity }, 'Stock transferred');
     return ledgerEntry;
   }
 

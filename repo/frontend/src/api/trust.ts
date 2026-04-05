@@ -17,6 +17,11 @@ export const trustApi = {
     return res.data.data;
   },
 
+  async getUserHistory(userId: number, params?: { page?: number; pageSize?: number }): Promise<PaginatedResponse<CreditHistory>> {
+    const res = await apiClient.get(`/trust/users/${userId}/history`, { params });
+    return res.data.data;
+  },
+
   async rateTask(data: {
     rateeId: number;
     taskId: number;

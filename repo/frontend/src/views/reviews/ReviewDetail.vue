@@ -166,7 +166,7 @@
         <n-alert type="info" class="mb-2">
           You can add a follow-up review within 7 days of your original review.
         </n-alert>
-        <n-button @click="router.push({ name: 'ReviewForm' })">
+        <n-button @click="router.push({ name: 'FollowUpForm', params: { id: reviewId } })">
           Add Follow-Up
         </n-button>
       </div>

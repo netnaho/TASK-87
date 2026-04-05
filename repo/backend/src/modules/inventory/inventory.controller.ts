@@ -53,6 +53,17 @@ class InventoryController {
     }
   };
 
+  getItemByBarcode = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const barcode = req.params.barcode as string;
+      const item = await inventoryService.getItemByBarcode(barcode);
+      res.json(successResponse(item));
+    } catch (err: any) {
+      if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
+      next(err);
+    }
+  };
+
   updateItem = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = parseInt(req.params.id as string, 10);
@@ -150,7 +161,8 @@ class InventoryController {
     try {
       const input = receiveSchema.parse(req.body);
       const ledgerEntry = await inventoryService.receive(input, req.user!.userId);
-      res.status(201).json(successResponse(ledgerEntry));
+      const isAdmin = req.user!.role === 'ADMIN';
+      res.status(201).json(successResponse({ ...ledgerEntry, unitCostUsd: isAdmin ? ledgerEntry.unitCostUsd : null }));
     } catch (err: any) {
       if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
       next(err);
@@ -161,7 +173,8 @@ class InventoryController {
     try {
       const input = issueSchema.parse(req.body);
       const ledgerEntry = await inventoryService.issue(input, req.user!.userId);
-      res.status(201).json(successResponse(ledgerEntry));
+      const isAdmin = req.user!.role === 'ADMIN';
+      res.status(201).json(successResponse({ ...ledgerEntry, unitCostUsd: isAdmin ? ledgerEntry.unitCostUsd : null }));
     } catch (err: any) {
       if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
       next(err);
@@ -172,7 +185,8 @@ class InventoryController {
     try {
       const input = transferSchema.parse(req.body);
       const ledgerEntry = await inventoryService.transfer(input, req.user!.userId);
-      res.status(201).json(successResponse(ledgerEntry));
+      const isAdmin = req.user!.role === 'ADMIN';
+      res.status(201).json(successResponse({ ...ledgerEntry, unitCostUsd: isAdmin ? ledgerEntry.unitCostUsd : null }));
     } catch (err: any) {
       if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
       next(err);

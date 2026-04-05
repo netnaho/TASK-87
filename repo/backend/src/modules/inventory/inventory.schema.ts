@@ -5,9 +5,11 @@ import { z } from 'zod';
 export const createItemSchema = z.object({
   name: z.string().min(1).max(200),
   sku: z.string().min(1).max(100),
+  barcode: z.string().min(1).max(100).optional(),
   category: z.string().min(1).max(100),
   description: z.string().optional(),
   isLotControlled: z.boolean().default(false),
+  requiresExpiration: z.boolean().default(false),
   unitOfMeasure: z.string().default('EA'),
   unitPrice: z.number().positive().optional(),
 });
@@ -34,7 +36,8 @@ export type UpdateThresholdInput = z.infer<typeof updateThresholdSchema>;
 
 export const receiveSchema = z.object({
   vendorId: z.number().int().positive(),
-  itemId: z.number().int().positive(),
+  itemId: z.number().int().positive().optional(),
+  barcode: z.string().min(1).max(100).optional(),
   locationId: z.number().int().positive(),
   quantity: z.number().int().positive(),
   unitCostUsd: z.number().positive().optional(),
@@ -43,26 +46,28 @@ export const receiveSchema = z.object({
   lotNumber: z.string().min(1).max(100).optional(),
   expirationDate: z.string().datetime().optional(),
   notes: z.string().optional(),
-});
+}).refine((d) => d.itemId || d.barcode, { message: 'Either itemId or barcode is required' });
 export type ReceiveInput = z.infer<typeof receiveSchema>;
 
 export const issueSchema = z.object({
-  itemId: z.number().int().positive(),
+  itemId: z.number().int().positive().optional(),
+  barcode: z.string().min(1).max(100).optional(),
   locationId: z.number().int().positive(),
   quantity: z.number().int().positive(),
   lotId: z.number().int().positive().optional(),
   notes: z.string().optional(),
-});
+}).refine((d) => d.itemId || d.barcode, { message: 'Either itemId or barcode is required' });
 export type IssueInput = z.infer<typeof issueSchema>;
 
 export const transferSchema = z.object({
-  itemId: z.number().int().positive(),
+  itemId: z.number().int().positive().optional(),
+  barcode: z.string().min(1).max(100).optional(),
   fromLocationId: z.number().int().positive(),
   toLocationId: z.number().int().positive(),
   quantity: z.number().int().positive(),
   lotId: z.number().int().positive().optional(),
   notes: z.string().optional(),
-});
+}).refine((d) => d.itemId || d.barcode, { message: 'Either itemId or barcode is required' });
 export type TransferInput = z.infer<typeof transferSchema>;
 
 // ─── STOCK COUNTS ───────────────────────────────────────────────

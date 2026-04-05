@@ -206,12 +206,10 @@ async function onUserSelect(userId: number | null) {
 
   historyLoading.value = true;
   try {
-    // Reuse getMyHistory endpoint logic — trust endpoint for specific user history
-    // Use admin adjust to query; if history per user exists, use that approach
-    // For now use getMyHistory scoped to own user (fallback: show empty)
-    const res = await trustApi.getMyHistory({ pageSize: 50 });
+    const res = await trustApi.getUserHistory(userId, { pageSize: 50 });
     creditHistory.value = res.items;
-  } catch {
+  } catch (err: any) {
+    errorMsg(err);
     creditHistory.value = [];
   } finally {
     historyLoading.value = false;
@@ -307,12 +305,18 @@ async function submitAdjust() {
       `Score adjusted: ${result.previousScore.toFixed(0)} → ${result.newScore.toFixed(0)}`
     );
     resetAdjustForm();
-    // Reload score
+    // Reload score and history for the selected user
+    const uid = selectedUserId.value;
     scoreLoading.value = true;
+    historyLoading.value = true;
     try {
-      selectedUserScore.value = await trustApi.getUserScore(selectedUserId.value);
+      [selectedUserScore.value] = await Promise.all([
+        trustApi.getUserScore(uid),
+        trustApi.getUserHistory(uid, { pageSize: 50 }).then((r) => { creditHistory.value = r.items; }),
+      ]);
     } finally {
       scoreLoading.value = false;
+      historyLoading.value = false;
     }
   } catch (err: any) {
     errorMsg(err);

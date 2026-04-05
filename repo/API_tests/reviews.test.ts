@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { api, loginAs, demoUsers } from './helpers';
+import { api, loginAs, demoUsers, clearRateLimits } from './helpers';
 
 describe('Reviews API', () => {
   let guestToken: string;
@@ -7,16 +7,29 @@ describe('Reviews API', () => {
   let adminToken: string;
   let managerToken: string;
 
+  let hostUserId: number;
+  let adminUserId: number;
   let reviewId: number;
   let followUpId: number;
 
   beforeAll(async () => {
+    // Clear rate limit state so tests are idempotent across runs without Docker restart
+    await clearRateLimits('guest');
+
     [guestToken, hostToken, adminToken, managerToken] = await Promise.all([
       loginAs(demoUsers.guest.username, demoUsers.guest.password),
       loginAs(demoUsers.host.username, demoUsers.host.password),
       loginAs(demoUsers.admin.username, demoUsers.admin.password),
       loginAs(demoUsers.manager.username, demoUsers.manager.password),
     ]);
+
+    // Get user IDs for ownership tests
+    const [hostMe, adminMe] = await Promise.all([
+      api.get('/api/auth/me').set('Authorization', `Bearer ${hostToken}`),
+      api.get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`),
+    ]);
+    hostUserId = hostMe.body.data.id;
+    adminUserId = adminMe.body.data.id;
   });
 
   // ─── Tags ────────────────────────────────────────────────────
@@ -42,6 +55,7 @@ describe('Reviews API', () => {
         .send({
           targetType: 'STAY',
           targetId: 1,
+          revieweeId: hostUserId,
           ratingCleanliness: 5,
           ratingCommunication: 4,
           ratingAccuracy: 4,
@@ -170,6 +184,32 @@ describe('Reviews API', () => {
         .expect(409);
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('DUPLICATE');
+    });
+
+    it('POST /api/reviews/:id/reply by non-owner HOST returns 403', async () => {
+      // Create a review targeting admin (not the host user)
+      const reviewRes = await api
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({
+          targetType: 'STAY',
+          targetId: 1,
+          revieweeId: adminUserId,
+          ratingCleanliness: 3,
+          ratingCommunication: 3,
+          ratingAccuracy: 3,
+          text: 'Review for cross-host authorization test.',
+        })
+        .expect(201);
+      const otherReviewId = reviewRes.body.data.id;
+
+      const res = await api
+        .post(`/api/reviews/${otherReviewId}/reply`)
+        .set('Authorization', `Bearer ${hostToken}`)
+        .send({ text: 'Cross-host reply attempt.' })
+        .expect(403);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('FORBIDDEN');
     });
   });
 });

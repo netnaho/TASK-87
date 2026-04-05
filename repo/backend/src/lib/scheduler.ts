@@ -149,6 +149,52 @@ registerJob('nightly-low-stock-reorder', '0 4 * * *', async () => {
   }
 });
 
+// ─── Nightly review-efficiency aggregation (1 AM) ───────────────
+registerJob('nightly-review-efficiency-aggregation', '0 1 * * *', async () => {
+  const prisma = (await import('./prisma')).default;
+  const { aggregateReviewEfficiency } = await import('../modules/reports/reviewEfficiencyAggregator');
+
+  const yesterday = new Date();
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+
+  logger.info(
+    { date: yesterday.toISOString().slice(0, 10) },
+    'review-efficiency aggregation job started',
+  );
+  try {
+    await aggregateReviewEfficiency(yesterday, prisma);
+    logger.info(
+      { date: yesterday.toISOString().slice(0, 10) },
+      'review-efficiency aggregation job completed',
+    );
+  } catch (error) {
+    logger.error({ error }, 'review-efficiency aggregation job failed');
+    throw error;
+  }
+});
+
+// ─── Process due scheduled reports (every 1 minute) ────────────
+registerJob('process-scheduled-reports', '* * * * *', async () => {
+  const prisma = (await import('./prisma')).default;
+  const { processScheduledReport } = await import('../modules/reports/reports.processor');
+
+  const dueReports = await prisma.scheduledReport.findMany({
+    where: {
+      status: 'PENDING',
+      scheduledTime: { lte: new Date() },
+    },
+    take: 5,
+  });
+
+  for (const report of dueReports) {
+    try {
+      await processScheduledReport(report.id);
+    } catch (error) {
+      logger.error({ reportId: report.id, error }, 'Failed to process scheduled report');
+    }
+  }
+});
+
 // ─── Cache cleanup every 30 minutes ─────────────────────────────
 registerJob('cache-cleanup', '*/30 * * * *', async () => {
   const { cache } = await import('./cache');

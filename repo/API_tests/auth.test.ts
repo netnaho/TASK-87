@@ -122,6 +122,54 @@ describe('Auth API', () => {
       expect(res.body.error.code).toBe('CONFLICT');
     });
 
+    it('should ignore role ADMIN and assign GUEST', async () => {
+      const uniqueUser = `testadmin_${Date.now()}`;
+      const res = await api
+        .post('/api/auth/register')
+        .send({
+          username: uniqueUser,
+          password: 'testpass123!',
+          displayName: 'Privilege Escalation Test',
+          role: 'ADMIN',
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.role).toBe('GUEST');
+    });
+
+    it('should ignore role MANAGER and assign GUEST', async () => {
+      const uniqueUser = `testmgr_${Date.now()}`;
+      const res = await api
+        .post('/api/auth/register')
+        .send({
+          username: uniqueUser,
+          password: 'testpass123!',
+          displayName: 'Privilege Escalation Test',
+          role: 'MANAGER',
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.role).toBe('GUEST');
+    });
+
+    it('should ignore role MODERATOR and assign GUEST', async () => {
+      const uniqueUser = `testmod_${Date.now()}`;
+      const res = await api
+        .post('/api/auth/register')
+        .send({
+          username: uniqueUser,
+          password: 'testpass123!',
+          displayName: 'Privilege Escalation Test',
+          role: 'MODERATOR',
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.role).toBe('GUEST');
+    });
+
     it('should reject weak password', async () => {
       const res = await api
         .post('/api/auth/register')

@@ -4,7 +4,6 @@ export const registerSchema = z.object({
   username: z.string().min(3).max(100).regex(/^[a-zA-Z0-9_]+$/, 'Username must be alphanumeric'),
   password: z.string().min(8).max(128),
   displayName: z.string().min(1).max(200),
-  role: z.enum(['ADMIN', 'MANAGER', 'INVENTORY_CLERK', 'FRONT_DESK', 'HOST', 'GUEST', 'MODERATOR']).optional(),
   phone: z.string().optional(),
 });
 

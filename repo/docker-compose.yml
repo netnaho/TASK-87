@@ -36,8 +36,8 @@ services:
       NODE_ENV: production
       PORT: "3000"
       DATABASE_URL: "mysql://harborops:harborops_pass@mysql:3306/harborops"
-      JWT_SECRET: "harborops-jwt-secret-change-in-production-2024"
-      ENCRYPTION_KEY: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+      JWT_SECRET: "${JWT_SECRET}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
       UPLOAD_DIR: "/app/uploads"
       LOG_LEVEL: "info"
       CACHE_TTL_MINUTES: "15"

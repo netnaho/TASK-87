@@ -60,7 +60,7 @@ export class ReviewsController {
     try {
       const reviewId = parseInt(req.params.id as string, 10);
       const input = createHostReplySchema.parse(req.body);
-      const reply = await reviewsService.createHostReply(reviewId, input, req.user!.userId);
+      const reply = await reviewsService.createHostReply(reviewId, input, req.user!.userId, req.user!.role);
       res.status(201).json(successResponse(reply));
     } catch (err: any) {
       if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }

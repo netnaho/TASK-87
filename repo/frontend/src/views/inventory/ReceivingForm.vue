@@ -20,6 +20,16 @@
           />
         </n-form-item>
 
+        <n-form-item label="Barcode (scan or type)">
+          <n-input
+            v-model:value="barcodeInput"
+            placeholder="Scan or enter barcode"
+            clearable
+            @keyup.enter="lookupBarcode"
+            @clear="barcodeInput = ''"
+          />
+        </n-form-item>
+
         <n-form-item label="Item" path="itemId">
           <n-select
             v-model:value="form.itemId"
@@ -203,6 +213,20 @@ const rules: FormRules = {
       trigger: ['blur', 'input'],
     },
   ],
+}
+
+const barcodeInput = ref('')
+
+async function lookupBarcode() {
+  if (!barcodeInput.value.trim()) return
+  try {
+    const item = await inventoryApi.getItemByBarcode(barcodeInput.value.trim())
+    form.itemId = item.id
+    onItemChange(item.id)
+    successMsg(`Item found: ${item.name}`)
+  } catch (err: any) {
+    errorMsg(err)
+  }
 }
 
 function onItemChange(id: number | null) {

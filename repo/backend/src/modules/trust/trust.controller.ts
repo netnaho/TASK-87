@@ -36,6 +36,22 @@ export class TrustController {
     }
   };
 
+  getUserHistory = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = parseInt(req.params.userId as string, 10);
+      if (isNaN(userId)) {
+        res.status(400).json(errorResponse('INVALID_ID', 'Invalid user ID'));
+        return;
+      }
+      const { page, pageSize } = paginate(req.query.page as string, req.query.pageSize as string);
+      const result = await trustService.getUserHistory(userId, page, pageSize);
+      res.json(successResponse(result));
+    } catch (err: any) {
+      if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
+      next(err);
+    }
+  };
+
   rateTask = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       const input = rateTaskSchema.parse(req.body);

@@ -220,10 +220,18 @@ export class ReviewsService {
   async createHostReply(
     reviewId: number,
     input: CreateHostReplyInput,
-    hostId: number
+    hostId: number,
+    callerRole: string
   ) {
     const review = await prisma.review.findUnique({ where: { id: reviewId } });
     if (!review) businessError('NOT_FOUND', 'Review not found', 404);
+
+    // Object-level authorization: HOST can only reply to reviews about them
+    if (callerRole !== 'ADMIN' && callerRole !== 'MANAGER') {
+      if (review!.revieweeId !== hostId) {
+        businessError('FORBIDDEN', 'You can only reply to reviews about your property', 403);
+      }
+    }
 
     // 14-day window
     const daysSince = (Date.now() - review!.createdAt.getTime()) / (1000 * 60 * 60 * 24);

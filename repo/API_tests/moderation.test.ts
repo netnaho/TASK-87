@@ -3,19 +3,36 @@ import { api, loginAs, demoUsers } from './helpers';
 
 describe('Moderation API', () => {
   let guestToken: string;
+  let hostToken: string;
   let moderatorToken: string;
   let adminToken: string;
 
+  let testReviewId: number;
   let reportId: number;
   let moderationActionId: number;
   let appealId: number;
 
   beforeAll(async () => {
-    [guestToken, moderatorToken, adminToken] = await Promise.all([
+    [guestToken, hostToken, moderatorToken, adminToken] = await Promise.all([
       loginAs(demoUsers.guest.username, demoUsers.guest.password),
+      loginAs(demoUsers.host.username, demoUsers.host.password),
       loginAs(demoUsers.moderator.username, demoUsers.moderator.password),
       loginAs(demoUsers.admin.username, demoUsers.admin.password),
     ]);
+
+    // Create a review as guest so we have a known author for appeal ownership tests
+    const reviewRes = await api
+      .post('/api/reviews')
+      .set('Authorization', `Bearer ${guestToken}`)
+      .send({
+        targetType: 'STAY',
+        targetId: 1,
+        ratingCleanliness: 2,
+        ratingCommunication: 2,
+        ratingAccuracy: 2,
+        text: 'Review created for moderation testing purposes.',
+      });
+    testReviewId = reviewRes.body.data.id;
   });
 
   // ─── File report ─────────────────────────────────────────────
@@ -24,10 +41,11 @@ describe('Moderation API', () => {
     it('POST /api/moderation/reports files a report successfully', async () => {
       const res = await api
         .post('/api/moderation/reports')
-        .set('Authorization', `Bearer ${guestToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           contentType: 'REVIEW',
-          contentId: 1,
+          contentId: testReviewId,
+          reviewId: testReviewId,
           reason: 'This review contains inappropriate language and false claims.',
         })
         .expect(201);
@@ -46,7 +64,7 @@ describe('Moderation API', () => {
     it('POST /api/moderation/reports with short reason returns 400', async () => {
       const res = await api
         .post('/api/moderation/reports')
-        .set('Authorization', `Bearer ${guestToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({ contentType: 'REVIEW', contentId: 2, reason: 'Bad.' })
         .expect(400);
       expect(res.body.success).toBe(false);
@@ -55,10 +73,11 @@ describe('Moderation API', () => {
     it('POST /api/moderation/reports duplicate returns 409', async () => {
       const res = await api
         .post('/api/moderation/reports')
-        .set('Authorization', `Bearer ${guestToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           contentType: 'REVIEW',
-          contentId: 1,
+          contentId: testReviewId,
+          reviewId: testReviewId,
           reason: 'Submitting the same report again for the same content.',
         })
         .expect(409);
@@ -150,6 +169,19 @@ describe('Moderation API', () => {
         .send({ moderationActionId, userStatement: 'Filing the same appeal again should be blocked.' })
         .expect(409);
       expect(res.body.success).toBe(false);
+    });
+
+    it('POST /api/moderation/appeals by non-affected user returns 403', async () => {
+      const res = await api
+        .post('/api/moderation/appeals')
+        .set('Authorization', `Bearer ${hostToken}`)
+        .send({
+          moderationActionId,
+          userStatement: 'I am not the affected user but trying to appeal anyway.',
+        })
+        .expect(403);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('FORBIDDEN');
     });
 
     it('GET /api/moderation/appeals lists appeals (MODERATOR)', async () => {

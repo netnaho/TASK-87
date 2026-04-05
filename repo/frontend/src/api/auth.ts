@@ -24,7 +24,7 @@ export const authApi = {
   login: (data: LoginPayload) =>
     apiClient.post<{ success: boolean; data: AuthResponse }>('/auth/login', data),
 
-  register: (data: LoginPayload & { displayName: string; role?: string }) =>
+  register: (data: LoginPayload & { displayName: string }) =>
     apiClient.post<{ success: boolean; data: AuthResponse }>('/auth/register', data),
 
   me: () =>

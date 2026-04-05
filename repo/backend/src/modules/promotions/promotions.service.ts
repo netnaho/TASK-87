@@ -172,9 +172,6 @@ export class PromotionsService {
       let bestSavings = 0;
 
       for (const promo of activePromotions) {
-        // Skip promotions already applied to a previous line
-        if (appliedPromotionIds.has(promo.id)) continue;
-
         // Skip if this promo excludes one already applied
         const excludedIds = promo.exclusionsFrom.map((e) => e.excludedPromotionId);
         const conflictsWithApplied = excludedIds.some((eid) => appliedPromotionIds.has(eid));

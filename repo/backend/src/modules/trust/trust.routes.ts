@@ -16,6 +16,9 @@ router.get('/leaderboard', authenticate, trustController.getLeaderboard);
 // GET /trust/users/:userId/score  — any user's score (ADMIN/MANAGER)
 router.get('/users/:userId/score', authenticate, authorize('ADMIN', 'MANAGER'), trustController.getUserScore);
 
+// GET /trust/users/:userId/history  — any user's credit history (ADMIN/MANAGER)
+router.get('/users/:userId/history', authenticate, authorize('ADMIN', 'MANAGER'), trustController.getUserHistory);
+
 // GET /trust/admin/scores  — all scores (ADMIN only)
 router.get('/admin/scores', authenticate, authorize('ADMIN'), trustController.getAllScores);
 

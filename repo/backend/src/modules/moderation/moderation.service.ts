@@ -166,8 +166,24 @@ export class ModerationService {
   async fileAppeal(input: FileAppealInput, userId: number) {
     const action = await prisma.moderationAction.findUnique({
       where: { id: input.moderationActionId },
+      include: { report: true },
     });
     if (!action) businessError('NOT_FOUND', 'Moderation action not found', 404);
+
+    // Object-level authorization: only the affected user can appeal
+    let affectedUserId: number | null = null;
+    const report = action!.report;
+    if (report.contentType === 'REVIEW') {
+      const reviewId = report.reviewId ?? report.contentId;
+      const review = await prisma.review.findUnique({ where: { id: reviewId } });
+      if (review) affectedUserId = review.reviewerId;
+    } else if (report.contentType === 'USER') {
+      affectedUserId = report.contentId;
+    }
+
+    if (affectedUserId !== userId) {
+      businessError('FORBIDDEN', 'You can only appeal moderation actions on your own content', 403);
+    }
 
     // One appeal per user per moderation action
     const existing = await prisma.appeal.findFirst({

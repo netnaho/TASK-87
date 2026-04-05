@@ -36,6 +36,11 @@ export const inventoryApi = {
     return res.data.data;
   },
 
+  async getItemByBarcode(barcode: string): Promise<InventoryItem> {
+    const res = await apiClient.get(`/inventory/items/by-barcode/${encodeURIComponent(barcode)}`);
+    return res.data.data;
+  },
+
   async listCategories(): Promise<string[]> {
     const res = await apiClient.get('/inventory/items/categories');
     return res.data.data;

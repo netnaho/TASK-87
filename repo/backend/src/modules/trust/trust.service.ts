@@ -27,6 +27,12 @@ export class TrustService {
     return score ?? { userId, score: 50 };
   }
 
+  async getUserHistory(userId: number, page: number, pageSize: number) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) businessError('NOT_FOUND', 'User not found', 404);
+    return this.getHistory(userId, page, pageSize);
+  }
+
   async getHistory(userId: number, page: number, pageSize: number) {
     const skip = (page - 1) * pageSize;
     const [items, total] = await Promise.all([
@@ -60,6 +66,25 @@ export class TrustService {
     // Prevent self-rating
     if (input.rateeId === raterId) {
       businessError('SELF_RATING', 'Cannot rate yourself', 422);
+    }
+
+    // Validate interaction exists
+    const interaction = await prisma.serviceInteraction.findUnique({
+      where: { id: input.taskId },
+    });
+    if (!interaction) {
+      businessError('INTERACTION_NOT_FOUND', 'Service interaction not found', 404);
+    }
+
+    // Validate interaction is completed
+    if (interaction!.status !== 'COMPLETED') {
+      businessError('INTERACTION_NOT_COMPLETED', 'Can only rate completed interactions', 422);
+    }
+
+    // Validate rater and ratee are both participants
+    const participantIds = new Set([interaction!.requesterId, interaction!.providerId]);
+    if (!participantIds.has(raterId) || !participantIds.has(input.rateeId)) {
+      businessError('NOT_PARTICIPANT', 'Rater and ratee must both be participants of this interaction', 403);
     }
 
     // Unique per rater+task

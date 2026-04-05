@@ -71,11 +71,17 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/reviews/ReviewsList.vue'),
         meta: { roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'HOST', 'GUEST', 'MODERATOR'] },
       },
-      // IMPORTANT: reviews/new must come BEFORE reviews/:id
+      // IMPORTANT: static segments must come BEFORE reviews/:id
       {
         path: 'reviews/new',
         name: 'ReviewForm',
         component: () => import('../views/reviews/ReviewForm.vue'),
+        meta: { roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'HOST', 'GUEST'] },
+      },
+      {
+        path: 'reviews/:id/follow-up',
+        name: 'FollowUpForm',
+        component: () => import('../views/reviews/FollowUpForm.vue'),
         meta: { roles: ['ADMIN', 'MANAGER', 'FRONT_DESK', 'HOST', 'GUEST'] },
       },
       {

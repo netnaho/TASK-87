@@ -182,6 +182,87 @@ describe('Inventory - Transfer Quantity Validation', () => {
   });
 });
 
+// ─── Lot-controlled receiving validation ─────────────────────────
+
+interface ReceiveValidationInput {
+  lotNumber?: string;
+  expirationDate?: string;
+}
+
+interface ItemFlags {
+  isLotControlled: boolean;
+  requiresExpiration: boolean;
+}
+
+type ReceiveValidationError = 'LOT_REQUIRED' | 'EXPIRATION_REQUIRED' | null;
+
+/** Mirrors the guard logic in inventory.service.ts receive() */
+function validateReceive(item: ItemFlags, input: ReceiveValidationInput): ReceiveValidationError {
+  if (item.isLotControlled && !input.lotNumber) return 'LOT_REQUIRED';
+  if (item.requiresExpiration && !input.expirationDate) return 'EXPIRATION_REQUIRED';
+  return null;
+}
+
+describe('Inventory - Lot-controlled Receiving Validation', () => {
+  it('rejects lot-controlled item with missing lotNumber', () => {
+    const err = validateReceive(
+      { isLotControlled: true, requiresExpiration: false },
+      { lotNumber: undefined }
+    );
+    expect(err).toBe('LOT_REQUIRED');
+  });
+
+  it('rejects item with requiresExpiration when expirationDate is missing', () => {
+    const err = validateReceive(
+      { isLotControlled: true, requiresExpiration: true },
+      { lotNumber: 'LOT-001', expirationDate: undefined }
+    );
+    expect(err).toBe('EXPIRATION_REQUIRED');
+  });
+
+  it('accepts lot-controlled + requiresExpiration item with both fields present', () => {
+    const err = validateReceive(
+      { isLotControlled: true, requiresExpiration: true },
+      { lotNumber: 'LOT-001', expirationDate: '2025-12-31T00:00:00.000Z' }
+    );
+    expect(err).toBeNull();
+  });
+
+  it('accepts lot-controlled item without expiration when requiresExpiration is false', () => {
+    const err = validateReceive(
+      { isLotControlled: true, requiresExpiration: false },
+      { lotNumber: 'LOT-001', expirationDate: undefined }
+    );
+    expect(err).toBeNull();
+  });
+
+  it('accepts non-lot-controlled item with neither field', () => {
+    const err = validateReceive(
+      { isLotControlled: false, requiresExpiration: false },
+      {}
+    );
+    expect(err).toBeNull();
+  });
+
+  it('requiresExpiration enforcement applies even when not lot-controlled', () => {
+    // Edge case: item requires expiration tracking but is not lot-controlled
+    const err = validateReceive(
+      { isLotControlled: false, requiresExpiration: true },
+      { expirationDate: undefined }
+    );
+    expect(err).toBe('EXPIRATION_REQUIRED');
+  });
+
+  it('LOT_REQUIRED is checked before EXPIRATION_REQUIRED', () => {
+    // Both fields missing on item that requires both — first error should be LOT_REQUIRED
+    const err = validateReceive(
+      { isLotControlled: true, requiresExpiration: true },
+      {}
+    );
+    expect(err).toBe('LOT_REQUIRED');
+  });
+});
+
 // ─── Reference number generation ─────────────────────────────────
 
 function generateRefNum(type: 'RCV' | 'ISS' | 'TRF' | 'STC' | 'ADJ'): string {

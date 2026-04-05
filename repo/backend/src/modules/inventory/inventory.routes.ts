@@ -18,6 +18,9 @@ router.post(
 router.get('/items/categories', authenticate, (req, res, next) =>
   inventoryController.listCategories(req as any, res, next)
 );
+router.get('/items/by-barcode/:barcode', authenticate, (req, res, next) =>
+  inventoryController.getItemByBarcode(req as any, res, next)
+);
 router.get('/items/:id', authenticate, (req, res, next) =>
   inventoryController.getItem(req as any, res, next)
 );

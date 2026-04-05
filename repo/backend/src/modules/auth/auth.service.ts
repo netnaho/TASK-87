@@ -28,7 +28,7 @@ export class AuthService {
         passwordHash,
         salt,
         displayName: input.displayName,
-        role: (input.role as Role) || 'GUEST',
+        role: 'GUEST',
         phoneEncrypted,
         phoneMasked,
       },

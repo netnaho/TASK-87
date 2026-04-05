@@ -353,12 +353,15 @@ export interface ReviewEfficiencyReport {
   appealRate: number;
 }
 
+export type ScheduledReportStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
+
 export interface ScheduledReport {
   id: number;
   reportType: string;
+  format: string;
   requestedBy: number;
   scheduledTime: string;
-  status: string;
+  status: ScheduledReportStatus;
   filePath?: string | null;
   createdAt: string;
   completedAt?: string | null;
