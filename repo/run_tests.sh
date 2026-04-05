@@ -17,7 +17,8 @@ echo "  Running Unit Tests"
 echo "──────────────────────────────────────"
 
 cd "$SCRIPT_DIR/backend"
-npx vitest run --config vitest.unit.config.ts --reporter=verbose
+npm install --prefer-offline 2>/dev/null || npm install
+./node_modules/.bin/vitest run --config vitest.unit.config.ts --reporter=verbose
 UNIT_EXIT=$?
 
 echo ""
@@ -45,7 +46,7 @@ done
 echo "Backend is healthy!"
 
 cd "$SCRIPT_DIR/backend"
-API_BASE_URL="$API_BASE_URL" npx vitest run --config vitest.api.config.ts --reporter=verbose
+API_BASE_URL="$API_BASE_URL" ./node_modules/.bin/vitest run --config vitest.api.config.ts --reporter=verbose
 API_EXIT=$?
 
 echo ""
