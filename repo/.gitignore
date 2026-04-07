@@ -62,7 +62,9 @@ frontend/dist/
 backend/dist/
 
 # --- Docker / local container overrides ---
-docker-compose.override.yml
+# docker-compose.override.yml is committed — it provides dev defaults for fresh clones.
+# Add docker-compose.override.local.yml for personal local customisations (gitignored).
+docker-compose.override.local.yml
 
 # --- Local tool settings ---
 .claude/settings.local.json

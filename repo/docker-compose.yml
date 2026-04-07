@@ -36,8 +36,8 @@ services:
       NODE_ENV: production
       PORT: "3000"
       DATABASE_URL: "mysql://harborops:harborops_pass@mysql:3306/harborops"
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set in .env — run: cp .env.example .env and fill in real values}"
-      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in .env — run: cp .env.example .env and fill in real values}"
+      JWT_SECRET: "${JWT_SECRET:-}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-}"
       UPLOAD_DIR: "/app/uploads"
       LOG_LEVEL: "info"
       CACHE_TTL_MINUTES: "15"

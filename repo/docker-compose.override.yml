@@ -1,0 +1,23 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LOCAL DEVELOPMENT OVERRIDE
+#
+# Docker Compose automatically merges this file with docker-compose.yml when
+# you run `docker compose up` (no -f flags needed).
+#
+# It switches the backend to development mode so the stack starts on a fresh
+# clone without requiring real secrets. The backend will print a loud warning
+# on every startup to remind you these are insecure dev-only values.
+#
+# FOR PRODUCTION / STAGING — exclude this file explicitly:
+#   docker compose -f docker-compose.yml up
+# and supply real secrets via environment variables or a private .env file.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  backend:
+    environment:
+      NODE_ENV: development
+      ALLOW_INSECURE_DEV_SECRETS: "true"
+      # Non-empty placeholders satisfy any remaining interpolation; the backend
+      # ignores them and uses hardcoded dev-only fallbacks instead.
+      JWT_SECRET: "dev-only-jwt-secret-not-for-production"
+      ENCRYPTION_KEY: "dev-only-encryption-key-not-for-production"

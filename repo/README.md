@@ -4,30 +4,35 @@ A production-grade full-stack application for property companies managing multip
 
 ## Start Command
 
-### Local development (docker compose)
+### Local development (docker compose) — zero config
 
 ```bash
 git clone <repo-url>
 cd <repo>
-
-# 1. Create your local secrets file from the template:
-cp .env.example .env
-
-# 2. Fill in strong random secrets (run once per variable):
-#    JWT_SECRET=$(openssl rand -hex 32)
-#    ENCRYPTION_KEY=$(openssl rand -hex 32)
-#    Edit .env and paste the output for each variable.
-
-# 3. Start the stack:
 docker compose up
 ```
 
-The database is created and seeded automatically on first startup. `.env` is **not** tracked by git — every developer (and every deployed environment) supplies their own secrets.
+The database is created and seeded automatically on first startup.
 
-> **Production / staging safety:** `docker-compose.yml` runs with `NODE_ENV=production`.
-> The backend will **refuse to start** if `JWT_SECRET` or `ENCRYPTION_KEY` are:
-> - absent or empty (caught by Docker Compose's `${VAR:?message}` syntax), or
-> - a known weak/placeholder value such as `replace-with-*`, `dev-only-*`, or any value shorter than 32 characters (caught by `config/index.ts`).
+`docker-compose.override.yml` is committed and auto-loaded by Docker Compose. It switches the backend to `NODE_ENV=development` with `ALLOW_INSECURE_DEV_SECRETS=true`, so the stack starts immediately on a fresh clone without any manual secret setup. The backend will print a warning on every startup to remind you that dev-only fallback secrets are in use.
+
+### Production / staging deployment
+
+Supply real secrets and exclude the dev override:
+
+```bash
+# Generate each secret once:
+export JWT_SECRET=$(openssl rand -hex 32)
+export ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+# Start production stack (no override):
+docker compose -f docker-compose.yml up -d
+```
+
+> **Production safety:** `docker-compose.yml` sets `NODE_ENV=production`. The backend will
+> **refuse to start** if `JWT_SECRET` or `ENCRYPTION_KEY` are:
+> - absent or empty, or
+> - a known weak/placeholder value (`dev-only-*`, `replace-with-*`, shorter than 32 characters).
 >
 > Always generate secrets with `openssl rand -hex 32`. Never reuse secrets across environments.
 
