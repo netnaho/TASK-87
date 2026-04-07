@@ -24,7 +24,7 @@ router.get(
     try {
       const cacheKey = 'kpi:dashboard';
       const cached = cache.get<any>(cacheKey);
-      if (cached) {
+      if (cached && Array.isArray(cached) && cached.length > 0) {
         res.json(successResponse(cached));
         return;
       }
@@ -34,7 +34,11 @@ router.get(
         take: 30,
       });
 
-      cache.set(cacheKey, kpis);
+      // Only cache populated results — caching an empty array would mask
+      // freshly aggregated KPI rows for the full TTL window.
+      if (kpis.length > 0) {
+        cache.set(cacheKey, kpis);
+      }
       res.json(successResponse(kpis));
     } catch (err) {
       next(err);

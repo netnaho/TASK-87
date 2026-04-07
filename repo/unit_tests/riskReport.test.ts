@@ -114,7 +114,7 @@ describe('computeRepeatOffenderCount — mixed authors', () => {
 // ─── buildAuthorActionMap — mocked Prisma ────────────────────────────────────
 
 function makePrismaForAuthorMap(
-  actions: Array<{ report: { review: { authorId: number } | null } | null }>
+  actions: Array<{ report: { review: { reviewerId: number } | null } | null }>
 ) {
   const findMany = vi.fn().mockResolvedValue(actions);
   return {
@@ -134,9 +134,9 @@ describe('buildAuthorActionMap — empty results', () => {
 describe('buildAuthorActionMap — with actions', () => {
   it('counts actions per author correctly', async () => {
     const actions = [
-      { report: { review: { authorId: 1 } } },
-      { report: { review: { authorId: 1 } } },
-      { report: { review: { authorId: 2 } } },
+      { report: { review: { reviewerId: 1 } } },
+      { report: { review: { reviewerId: 1 } } },
+      { report: { review: { reviewerId: 2 } } },
     ];
     const { prisma } = makePrismaForAuthorMap(actions);
     const map = await buildAuthorActionMap(new Date(), new Date(), prisma);
@@ -148,7 +148,7 @@ describe('buildAuthorActionMap — with actions', () => {
     const actions = [
       { report: null },
       { report: { review: null } },
-      { report: { review: { authorId: 5 } } },
+      { report: { review: { reviewerId: 5 } } },
     ];
     const { prisma } = makePrismaForAuthorMap(actions);
     const map = await buildAuthorActionMap(new Date(), new Date(), prisma);

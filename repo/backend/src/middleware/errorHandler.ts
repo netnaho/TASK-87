@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
+import multer from 'multer';
 import { logger } from '../lib/logger';
 import { errorResponse } from '../types';
 
@@ -10,6 +11,13 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     res.status(400).json(
       errorResponse('VALIDATION_ERROR', 'Request validation failed', err.errors)
     );
+    return;
+  }
+
+  // Multer upload errors — translate to 400/413 instead of generic 500.
+  if (err instanceof multer.MulterError) {
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    res.status(status).json(errorResponse(err.code, err.message));
     return;
   }
 

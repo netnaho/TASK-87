@@ -68,7 +68,7 @@ export async function buildAuthorActionMap(
   const p = prisma as any;
 
   const actions: Array<{
-    report: { review: { authorId: number } | null } | null;
+    report: { review: { reviewerId: number } | null } | null;
   }> = await p.moderationAction.findMany({
     where: {
       action: { in: ['HIDE', 'REMOVE'] },
@@ -77,14 +77,15 @@ export async function buildAuthorActionMap(
     },
     select: {
       report: {
-        select: { review: { select: { authorId: true } } },
+        select: { review: { select: { reviewerId: true } } },
       },
     },
   });
 
   const map = new Map<number, number>();
   for (const a of actions) {
-    const authorId = a.report?.review?.authorId;
+    // Review.reviewerId is the author of the review whose content was hidden/removed.
+    const authorId = a.report?.review?.reviewerId;
     if (authorId !== undefined && authorId !== null) {
       map.set(authorId, (map.get(authorId) ?? 0) + 1);
     }
