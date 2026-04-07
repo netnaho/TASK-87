@@ -5,6 +5,12 @@ import { exportToCsv, exportToExcel } from '../../lib/exporter';
 import { paginate } from '../../types';
 import { config } from '../../config';
 import {
+  computeLowStockThreshold,
+  generateRefNum as generateRefNumUtil,
+  validateReceiveInput,
+  validateTransferQty,
+} from './inventory.utils';
+import {
   CreateItemInput,
   UpdateItemInput,
   CreateVendorInput,
@@ -50,9 +56,7 @@ class InventoryService {
   // ─── Private helpers ─────────────────────────────────────────
 
   private generateRefNum(type: 'RCV' | 'ISS' | 'TRF' | 'STC' | 'ADJ'): string {
-    const yyyymmdd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-    return `${type}-${yyyymmdd}-${rand}`;
+    return generateRefNumUtil(type);
   }
 
   private buildLedgerWhere(query: LedgerQuery) {
@@ -255,11 +259,12 @@ class InventoryService {
     const itemId = await resolveItemId(input);
     const item = await prisma.item.findUnique({ where: { id: itemId } });
     if (!item) businessError('NOT_FOUND', 'Item not found', 404);
-    if (item!.isLotControlled && !input.lotNumber) {
+    // requiresExpiration is independent of lot control — it mandates traceability of perishables.
+    const receiveErr = validateReceiveInput(item! as any, input);
+    if (receiveErr === 'LOT_REQUIRED') {
       businessError('LOT_REQUIRED', 'Lot number required for lot-controlled item', 422);
     }
-    // requiresExpiration is independent of lot control — it mandates traceability of perishables.
-    if (item!.requiresExpiration && !input.expirationDate) {
+    if (receiveErr === 'EXPIRATION_REQUIRED') {
       businessError('EXPIRATION_REQUIRED', 'Expiration date required for this item', 422);
     }
 
@@ -380,8 +385,15 @@ class InventoryService {
       if (!source) {
         businessError('NOT_FOUND', 'Source stock level not found', 404);
       }
-      if (source!.onHand < input.quantity) {
-        businessError('INSUFFICIENT_STOCK', `Insufficient stock: ${source!.onHand} available, ${input.quantity} requested`, 422);
+      const transferCheck = validateTransferQty(source!.onHand, input.quantity);
+      if (!transferCheck.valid) {
+        businessError(
+          transferCheck.errorCode!,
+          transferCheck.errorCode === 'INSUFFICIENT_STOCK'
+            ? `Insufficient stock: ${source!.onHand} available, ${input.quantity} requested`
+            : 'Invalid transfer quantity',
+          422,
+        );
       }
 
       await tx.stockLevel.update({
@@ -675,7 +687,7 @@ class InventoryService {
 
     return stockLevels
       .map((sl) => {
-        const threshold = Math.max(sl.safetyThreshold, Number(sl.avgDailyUsage) * 7);
+        const threshold = computeLowStockThreshold(sl.safetyThreshold, Number(sl.avgDailyUsage));
         return { ...sl, threshold, isLowStock: sl.onHand < threshold };
       })
       .filter((sl) => sl.isLowStock);

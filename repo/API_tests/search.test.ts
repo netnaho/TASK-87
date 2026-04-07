@@ -5,15 +5,17 @@ describe('Search API', () => {
   let guestToken: string;
   let clerkToken: string;
   let managerToken: string;
+  let adminToken: string;
 
   // Attribute created for filter tests; cleaned up in afterAll
   let testAttrId: number;
 
   beforeAll(async () => {
-    [guestToken, clerkToken, managerToken] = await Promise.all([
+    [guestToken, clerkToken, managerToken, adminToken] = await Promise.all([
       loginAs(demoUsers.guest.username, demoUsers.guest.password),
       loginAs(demoUsers.clerk.username, demoUsers.clerk.password),
       loginAs(demoUsers.manager.username, demoUsers.manager.password),
+      loginAs(demoUsers.admin.username, demoUsers.admin.password),
     ]);
 
     // Attach a known attribute to "Bath Towels - White" so attribute-filter tests have real data
@@ -215,6 +217,80 @@ describe('Search API', () => {
       await api
         .get('/api/search/products?q=towel')
         .expect(401);
+    });
+  });
+
+  // ─── Trending admin toggle — RBAC ────────────────────────────
+
+  describe('Trending admin toggle auth checks', () => {
+    it('GET /api/search/trending returns 403 for GUEST (requires MANAGER or ADMIN)', async () => {
+      await api
+        .get('/api/search/trending')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/search/trending returns 403 for INVENTORY_CLERK', async () => {
+      await api
+        .get('/api/search/trending')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/search/trending succeeds for MANAGER', async () => {
+      const res = await api
+        .get('/api/search/trending')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it('GET /api/search/trending succeeds for ADMIN', async () => {
+      const res = await api
+        .get('/api/search/trending')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it('PATCH /api/search/trending/:term returns 403 for MANAGER (requires ADMIN)', async () => {
+      await api
+        .patch('/api/search/trending/towel')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({ isTrending: true })
+        .expect(403);
+    });
+
+    it('PATCH /api/search/trending/:term returns 403 for GUEST', async () => {
+      await api
+        .patch('/api/search/trending/towel')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({ isTrending: true })
+        .expect(403);
+    });
+
+    it('PATCH /api/search/trending/:term returns 401 without auth', async () => {
+      await api
+        .patch('/api/search/trending/towel')
+        .send({ isTrending: true })
+        .expect(401);
+    });
+
+    it('PATCH /api/search/trending/:term succeeds for ADMIN and reflects toggle', async () => {
+      const res = await api
+        .patch('/api/search/trending/towel')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isTrending: true })
+        .expect(200);
+      expect(res.body.success).toBe(true);
+
+      // Toggle back off to leave state clean
+      await api
+        .patch('/api/search/trending/towel')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isTrending: false })
+        .expect(200);
     });
   });
 });

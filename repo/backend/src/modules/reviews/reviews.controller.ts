@@ -1,6 +1,8 @@
+import path from 'path';
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest, successResponse, errorResponse } from '../../types';
 import { reviewsService } from './reviews.service';
+import { config } from '../../config';
 import {
   createReviewSchema,
   createFollowUpSchema,
@@ -62,6 +64,28 @@ export class ReviewsController {
       const input = createHostReplySchema.parse(req.body);
       const reply = await reviewsService.createHostReply(reviewId, input, req.user!.userId, req.user!.role);
       res.status(201).json(successResponse(reply));
+    } catch (err: any) {
+      if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
+      next(err);
+    }
+  };
+
+  getReviewImage = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const reviewId = parseInt(req.params.reviewId as string, 10);
+      const imageId = parseInt(req.params.imageId as string, 10);
+      const filename = await reviewsService.getImageFileByReviewAndId(
+        reviewId,
+        imageId,
+        req.user!.userId,
+        req.user!.role
+      );
+      const filePath = path.resolve(config.upload.dir, filename);
+      res.sendFile(filePath, (err) => {
+        if (err && !res.headersSent) {
+          res.status(404).json(errorResponse('NOT_FOUND', 'Image not found'));
+        }
+      });
     } catch (err: any) {
       if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
       next(err);

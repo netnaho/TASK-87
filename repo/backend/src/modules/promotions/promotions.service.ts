@@ -65,8 +65,8 @@ export class PromotionsService {
   }
 
   async createPromotion(input: CreatePromotionInput) {
-    const promotion = await prisma.$transaction(async (tx) => {
-      const created = await tx.promotion.create({
+    const created = await prisma.$transaction(async (tx) => {
+      const promotion = await tx.promotion.create({
         data: {
           name: input.name,
           description: input.description ?? null,
@@ -82,24 +82,32 @@ export class PromotionsService {
 
       if (input.itemIds && input.itemIds.length > 0) {
         await tx.promotionItem.createMany({
-          data: input.itemIds.map((itemId) => ({ promotionId: created.id, itemId })),
+          data: input.itemIds.map((itemId) => ({ promotionId: promotion.id, itemId })),
         });
       }
 
       if (input.exclusions && input.exclusions.length > 0) {
         await tx.promotionExclusion.createMany({
           data: input.exclusions.map((excludedId) => ({
-            promotionId: created.id,
+            promotionId: promotion.id,
             excludedPromotionId: excludedId,
           })),
         });
       }
 
-      return created;
+      return promotion;
     });
 
-    logger.info({ promotionId: promotion.id, name: promotion.name }, 'Promotion created');
-    return promotion;
+    logger.info({ promotionId: created.id, name: created.name }, 'Promotion created');
+
+    // Re-fetch with relations so the response mirrors the list shape.
+    return prisma.promotion.findUniqueOrThrow({
+      where: { id: created.id },
+      include: {
+        items: { include: { item: { select: { id: true, name: true, sku: true } } } },
+        exclusionsFrom: { include: { excludedPromotion: { select: { id: true, name: true } } } },
+      },
+    });
   }
 
   async updatePromotion(id: number, input: UpdatePromotionInput) {
@@ -117,9 +125,37 @@ export class PromotionsService {
     if (input.priority !== undefined) data.priority = input.priority;
     if (input.isActive !== undefined) data.isActive = input.isActive;
 
-    const updated = await prisma.promotion.update({ where: { id }, data });
+    // Exclusion sync uses a replace (delete-then-insert) strategy inside a transaction
+    // so the table is never in a partial state.
+    // undefined  → leave existing exclusions unchanged (no-op)
+    // []         → clear all exclusions
+    // [id, ...]  → replace with the provided set
+    await prisma.$transaction(async (tx) => {
+      await tx.promotion.update({ where: { id }, data });
+
+      if (input.exclusions !== undefined) {
+        await tx.promotionExclusion.deleteMany({ where: { promotionId: id } });
+        if (input.exclusions.length > 0) {
+          await tx.promotionExclusion.createMany({
+            data: input.exclusions.map((excludedId) => ({
+              promotionId: id,
+              excludedPromotionId: excludedId,
+            })),
+          });
+        }
+      }
+    });
+
     logger.info({ promotionId: id }, 'Promotion updated');
-    return updated;
+
+    // Return with relations so the response mirrors the list shape.
+    return prisma.promotion.findUniqueOrThrow({
+      where: { id },
+      include: {
+        items: { include: { item: { select: { id: true, name: true, sku: true } } } },
+        exclusionsFrom: { include: { excludedPromotion: { select: { id: true, name: true } } } },
+      },
+    });
   }
 
   async checkout(input: CheckoutInput) {

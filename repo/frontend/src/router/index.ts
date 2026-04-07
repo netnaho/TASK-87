@@ -125,6 +125,13 @@ const routes: RouteRecordRaw[] = [
         meta: { roles: ['ADMIN', 'MODERATOR'] },
       },
       {
+        path: 'appeals',
+        name: 'MyAppeals',
+        component: () => import('../views/moderation/MyAppeals.vue'),
+        // All authenticated non-moderator roles may have content actioned against them
+        meta: { roles: ['ADMIN', 'MANAGER', 'INVENTORY_CLERK', 'FRONT_DESK', 'HOST', 'GUEST'] },
+      },
+      {
         path: 'admin/users',
         name: 'UserManagement',
         component: () => import('../views/admin/UserManagement.vue'),

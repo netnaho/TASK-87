@@ -11,7 +11,7 @@ import { processScheduledReport } from './reports.processor';
 const router = Router();
 
 const scheduleReportSchema = z.object({
-  reportType: z.enum(['KPI_SUMMARY', 'REVIEW_EFFICIENCY', 'INVENTORY_SNAPSHOT']),
+  reportType: z.enum(['KPI_SUMMARY', 'REVIEW_EFFICIENCY', 'INVENTORY_SNAPSHOT', 'REVIEW_RISK']),
   scheduledFor: z.string().refine((s) => !isNaN(Date.parse(s)), 'Invalid date'),
   format: z.enum(['csv', 'excel']).optional().default('csv'),
 });
@@ -117,7 +117,7 @@ router.post(
         res.status(404).json(errorResponse('NOT_FOUND', 'Scheduled report not found'));
         return;
       }
-      if (report.requestedBy !== req.user!.userId && req.user!.role !== 'ADMIN' && req.user!.role !== 'MANAGER') {
+      if (report.requestedBy !== req.user!.userId && req.user!.role !== 'ADMIN') {
         res.status(403).json(errorResponse('FORBIDDEN', 'Not authorized to process this report'));
         return;
       }
@@ -151,7 +151,7 @@ router.get(
         res.status(404).json(errorResponse('NOT_FOUND', 'Scheduled report not found'));
         return;
       }
-      if (report.requestedBy !== req.user!.userId && req.user!.role !== 'ADMIN' && req.user!.role !== 'MANAGER') {
+      if (report.requestedBy !== req.user!.userId && req.user!.role !== 'ADMIN') {
         res.status(403).json(errorResponse('FORBIDDEN', 'Not authorized to access this report'));
         return;
       }

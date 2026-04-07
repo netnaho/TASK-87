@@ -104,6 +104,29 @@ export class ModerationController {
     }
   };
 
+  listMyAppeals = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const query = appealsQuerySchema.parse(req.query);
+      const { page, pageSize } = paginate(query.page, query.pageSize);
+      const result = await moderationService.listMyAppeals(req.user!.userId, query.status, page, pageSize);
+      res.json(successResponse(result));
+    } catch (err: any) {
+      if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
+      next(err);
+    }
+  };
+
+  listMyModerationActions = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { page, pageSize } = paginate(req.query.page as string, req.query.pageSize as string);
+      const result = await moderationService.listMyModerationActions(req.user!.userId, page, pageSize);
+      res.json(successResponse(result));
+    } catch (err: any) {
+      if (err.statusCode) { res.status(err.statusCode).json(errorResponse(err.code, err.message)); return; }
+      next(err);
+    }
+  };
+
   addSensitiveWord = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       const input = addSensitiveWordSchema.parse(req.body);

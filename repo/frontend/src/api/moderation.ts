@@ -73,6 +73,25 @@ export const moderationApi = {
     return res.data.data;
   },
 
+  /** List the calling user's own appeals (scoped by JWT identity). */
+  async listMyAppeals(params?: {
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<PaginatedResponse<Appeal>> {
+    const res = await apiClient.get('/moderation/appeals/my', { params });
+    return res.data.data;
+  },
+
+  /** List moderation actions that affected the calling user's own content. */
+  async listMyModerationActions(params?: {
+    page?: number;
+    pageSize?: number;
+  }): Promise<PaginatedResponse<ModerationAction>> {
+    const res = await apiClient.get('/moderation/actions/my', { params });
+    return res.data.data;
+  },
+
   // ─── Sensitive Words ──────────────────────────────────────────────────────
   async listSensitiveWords(params?: { page?: number; pageSize?: number }): Promise<PaginatedResponse<SensitiveWord>> {
     const res = await apiClient.get('/moderation/sensitive-words', { params });

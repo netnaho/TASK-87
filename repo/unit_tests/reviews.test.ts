@@ -200,33 +200,25 @@ describe('Reviews - Host Reply Authorization', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
   });
 
-  it('ADMIN bypasses ownership check', async () => {
+  it('ADMIN with wrong revieweeId is rejected (ownership always enforced)', async () => {
     vi.mocked(prisma.review.findUnique).mockResolvedValue(
       makeReview({ revieweeId: 30, createdAt: daysAgo(1) }) as any
     );
-    vi.mocked(prisma.hostReply.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.hostReply.create).mockResolvedValue({
-      id: 1, host: { id: 99, displayName: 'Admin' },
-    } as any);
 
-    // Caller 99 is ADMIN, revieweeId is 30 — should succeed despite ownership mismatch
+    // Caller 99 is ADMIN but revieweeId is 30 — ownership is enforced regardless of role
     await expect(
       reviewsService.createHostReply(1, { text: 'Admin reply' }, 99, 'ADMIN')
-    ).resolves.toBeDefined();
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
   });
 
-  it('MANAGER bypasses ownership check', async () => {
+  it('MANAGER with wrong revieweeId is rejected (ownership always enforced)', async () => {
     vi.mocked(prisma.review.findUnique).mockResolvedValue(
       makeReview({ revieweeId: 30, createdAt: daysAgo(1) }) as any
     );
-    vi.mocked(prisma.hostReply.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.hostReply.create).mockResolvedValue({
-      id: 1, host: { id: 55, displayName: 'Manager' },
-    } as any);
 
     await expect(
       reviewsService.createHostReply(1, { text: 'Manager reply' }, 55, 'MANAGER')
-    ).resolves.toBeDefined();
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
   });
 
   it('throws DUPLICATE when host has already replied', async () => {

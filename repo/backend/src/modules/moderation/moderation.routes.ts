@@ -17,6 +17,10 @@ router.get('/audit', authenticate, authorize('ADMIN'), moderationController.getA
 
 // Appeals
 router.post('/appeals', authenticate, moderationController.fileAppeal);
+// User-scoped: only own appeals / only actions affecting own content
+router.get('/appeals/my', authenticate, moderationController.listMyAppeals);
+router.get('/actions/my', authenticate, moderationController.listMyModerationActions);
+// Admin/moderator views (must come after static segments like /appeals/my)
 router.get('/appeals', authenticate, authorize('MODERATOR', 'ADMIN'), moderationController.listAppeals);
 router.post('/appeals/:id/resolve', authenticate, authorize('ADMIN'), moderationController.resolveAppeal);
 

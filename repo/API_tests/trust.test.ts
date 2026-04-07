@@ -233,4 +233,108 @@ describe('Trust / Credit API', () => {
       expect(res.body.success).toBe(false);
     });
   });
+
+  // ─── Credit-rule RBAC & metadata ─────────────────────────────
+
+  describe('Credit-rule endpoints RBAC and metadata', () => {
+    it('GET /api/trust/admin/credit-rules returns 401 without auth', async () => {
+      await api.get('/api/trust/admin/credit-rules').expect(401);
+    });
+
+    it('GET /api/trust/admin/credit-rules returns 403 for GUEST', async () => {
+      await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/trust/admin/credit-rules returns 403 for INVENTORY_CLERK', async () => {
+      await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/trust/admin/credit-rules returns 403 for HOST', async () => {
+      const hostT = await import('./helpers').then((h) =>
+        h.loginAs(h.demoUsers.host.username, h.demoUsers.host.password)
+      );
+      await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${hostT}`)
+        .expect(403);
+    });
+
+    it('PUT /api/trust/admin/credit-rules returns 403 for non-admin', async () => {
+      await api
+        .put('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({ '5': 2, '4': 1, '3': 0, '2': -1, '1': -2 })
+        .expect(403);
+    });
+
+    it('DELETE /api/trust/admin/credit-rules returns 403 for non-admin', async () => {
+      await api
+        .delete('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/trust/admin/credit-rules returns rules with source and fallbackEnabled metadata', async () => {
+      const res = await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      const data = res.body.data;
+      // Rules map must be present and non-empty
+      expect(data).toHaveProperty('rules');
+      expect(typeof data.rules).toBe('object');
+      // Source must be either 'db' or 'fallback'
+      expect(data).toHaveProperty('source');
+      expect(['db', 'fallback']).toContain(data.source);
+      // fallbackEnabled flag must be a boolean
+      expect(data).toHaveProperty('fallbackEnabled');
+      expect(typeof data.fallbackEnabled).toBe('boolean');
+    });
+
+    it('GET /api/trust/admin/credit-rules rules map covers all five star ratings', async () => {
+      const res = await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const { rules } = res.body.data;
+      // Seed or fallback ensures ratings 1–5 are all present
+      for (const star of [1, 2, 3, 4, 5]) {
+        // Keys may be numeric or string depending on JSON serialization
+        const value = rules[star] ?? rules[String(star)];
+        expect(value).not.toBeUndefined();
+        expect(typeof value).toBe('number');
+      }
+    });
+
+    it('PUT then GET reflects persisted rules and source=db', async () => {
+      // Upsert known rules
+      await api
+        .put('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ '5': 3, '4': 1, '3': 0, '2': -1, '1': -3 })
+        .expect(200);
+
+      const res = await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.data.source).toBe('db');
+      // Restore defaults so other tests aren't affected
+      await api
+        .put('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ '5': 2, '4': 1, '3': 0, '2': -1, '1': -2 })
+        .expect(200);
+    });
+  });
 });

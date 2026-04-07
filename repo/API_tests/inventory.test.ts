@@ -672,4 +672,121 @@ describe('Inventory API', () => {
       }
     });
   });
+
+  // ─── Lot / expiration business rules ─────────────────────────
+
+  describe('Lot and expiration enforcement', () => {
+    let lotItemId: number;
+    let expirationItemId: number;
+
+    beforeAll(async () => {
+      const lotItemRes = await api
+        .post('/api/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Test Lot-Controlled Item',
+          sku: `TEST-LOT-${Date.now()}`,
+          category: 'TestCategory',
+          isLotControlled: true,
+          requiresExpiration: false,
+        })
+        .expect(201);
+      lotItemId = lotItemRes.body.data.id;
+
+      const expItemRes = await api
+        .post('/api/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Test Expiration-Required Item',
+          sku: `TEST-EXP-${Date.now()}`,
+          category: 'TestCategory',
+          isLotControlled: false,
+          requiresExpiration: true,
+        })
+        .expect(201);
+      expirationItemId = expItemRes.body.data.id;
+    });
+
+    it('POST /receive returns 422 LOT_REQUIRED for lot-controlled item without lotNumber', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          itemId: lotItemId,
+          locationId: firstLocationId,
+          quantity: 5,
+        })
+        .expect(422);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('LOT_REQUIRED');
+    });
+
+    it('POST /receive returns 422 EXPIRATION_REQUIRED for expiration item without expirationDate', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          itemId: expirationItemId,
+          locationId: firstLocationId,
+          quantity: 5,
+        })
+        .expect(422);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('EXPIRATION_REQUIRED');
+    });
+
+    it('POST /receive accepts expirationDate as full ISO datetime', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          itemId: expirationItemId,
+          locationId: firstLocationId,
+          quantity: 5,
+          expirationDate: '2027-12-31T00:00:00.000Z',
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.movementType).toBe('RECEIVING');
+    });
+
+    it('POST /receive accepts expirationDate as date-only YYYY-MM-DD', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          itemId: expirationItemId,
+          locationId: firstLocationId,
+          quantity: 5,
+          expirationDate: '2027-12-31',
+        })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.movementType).toBe('RECEIVING');
+    });
+
+    it('POST /receive rejects invalid expirationDate format', async () => {
+      const res = await api
+        .post('/api/inventory/receive')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({
+          vendorId: firstVendorId,
+          itemId: expirationItemId,
+          locationId: firstLocationId,
+          quantity: 5,
+          expirationDate: 'not-a-date',
+        })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+    });
+  });
 });

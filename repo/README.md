@@ -4,26 +4,43 @@ A production-grade full-stack application for property companies managing multip
 
 ## Start Command
 
-```bash
-# 1. Create .env from the template and fill in real secret values
-cp .env.example .env
-#    Edit .env — set JWT_SECRET and ENCRYPTION_KEY to unique random strings.
-#    Generate each with: openssl rand -hex 32
+### Local development (docker compose)
 
-# 2. Start the stack
+```bash
+git clone <repo-url>
+cd <repo>
+
+# 1. Create your local secrets file from the template:
+cp .env.example .env
+
+# 2. Fill in strong random secrets (run once per variable):
+#    JWT_SECRET=$(openssl rand -hex 32)
+#    ENCRYPTION_KEY=$(openssl rand -hex 32)
+#    Edit .env and paste the output for each variable.
+
+# 3. Start the stack:
 docker compose up
 ```
 
-The database is created and seeded automatically on first startup.
+The database is created and seeded automatically on first startup. `.env` is **not** tracked by git — every developer (and every deployed environment) supplies their own secrets.
 
-> **Security note:** `JWT_SECRET` and `ENCRYPTION_KEY` must be set in `.env` (or injected
-> as environment variables) before starting. The backend refuses to start if either secret is
-> missing — **in any environment**, including development — unless
-> `ALLOW_INSECURE_DEV_SECRETS=true` is also set. That flag enables hardcoded insecure
-> fallback values for local development convenience only; it is explicitly blocked in
-> production (`NODE_ENV=production`) and triggers a loud warning on every startup.
-> Never commit `.env` to version control, and never set `ALLOW_INSECURE_DEV_SECRETS=true`
-> in staging or production.
+> **Production / staging safety:** `docker-compose.yml` runs with `NODE_ENV=production`.
+> The backend will **refuse to start** if `JWT_SECRET` or `ENCRYPTION_KEY` are:
+> - absent or empty (caught by Docker Compose's `${VAR:?message}` syntax), or
+> - a known weak/placeholder value such as `replace-with-*`, `dev-only-*`, or any value shorter than 32 characters (caught by `config/index.ts`).
+>
+> Always generate secrets with `openssl rand -hex 32`. Never reuse secrets across environments.
+
+### Local development (outside Docker, `npm run dev`)
+
+For iterating quickly outside Docker you can skip real secrets by setting `ALLOW_INSECURE_DEV_SECRETS=true` in your `.env`. The backend will use hardcoded dev-only fallback values and print a loud warning on every startup. **This flag is ignored when `NODE_ENV=production`.**
+
+```bash
+# In your .env:
+ALLOW_INSECURE_DEV_SECRETS=true
+JWT_SECRET=any-non-empty-placeholder
+ENCRYPTION_KEY=any-non-empty-placeholder
+```
 
 ## Service Addresses
 
@@ -118,10 +135,12 @@ chmod +x run_tests.sh
 
 ### Test suites
 
-| Suite | Dir | Count | Coverage |
+| Suite | Dir | Files | Coverage |
 |-------|-----|-------|----------|
-| Unit tests | `unit_tests/` | 10 files | Auth, cache, encryption, inventory, moderation, promotions, reviews, trust, types |
-| API tests | `API_tests/` | 10 files | Health, auth, RBAC, smoke, inventory, reviews, promotions, moderation, trust, search |
+| Unit tests | `unit_tests/` | 15 | Auth, cache, config, encryption, exporter, inventory, KPI aggregation, low-stock, moderation, promotions, review-efficiency report, reviews, risk report, trust, types |
+| API tests | `API_tests/` | 11 | Health, auth, RBAC, smoke, inventory, reviews (incl. rate-limit), promotions, moderation, trust, search, reports |
+
+> File counts reflect the current state of the repo. Run `ls unit_tests/*.test.ts \| wc -l` and `ls API_tests/*.test.ts \| wc -l` to verify.
 
 ## Project Structure
 
@@ -130,7 +149,6 @@ repo/
 ├── docker-compose.yml          # One-command startup (MySQL + backend + frontend)
 ├── README.md                   # This file
 ├── run_tests.sh                # Test runner (unit + API)
-├── SELF_TEST_REPORT.md         # Self-test acceptance report
 │
 ├── backend/
 │   ├── Dockerfile              # Multi-stage Node 20 Alpine build
@@ -167,8 +185,8 @@ repo/
 │       ├── composables/        # usePagination, useAppMessage, etc.
 │       └── views/              # 21 page views across 8 domains
 │
-├── unit_tests/                 # Vitest unit tests (10 files)
-└── API_tests/                  # Vitest + Supertest API tests (10 files)
+├── unit_tests/                 # Vitest unit tests (15 files)
+└── API_tests/                  # Vitest + Supertest API tests (11 files)
 ```
 
 ## Architecture Summary
@@ -197,3 +215,55 @@ repo/
 - **Promotion conflict resolution**: Priority-based with max-savings tiebreaker and mutual exclusion
 - **Trust credit system**: Rating-based delta (5★→+2 ... 1★→-2), score clamped 0-100
 - **Appeal state machine**: PENDING → IN_REVIEW → UPHELD/OVERTURNED with auto-restore on overturn
+
+## Trust Rule Governance
+
+The trust credit system translates star ratings into trust-score deltas via a configurable
+`credit_rules` database table. The prisma seed inserts default values on first startup so every
+deployment starts with explicit, auditable rows.
+
+### Rule precedence
+
+| Condition | Behaviour |
+|-----------|-----------|
+| `credit_rules` table has rows | DB rules are used. `source` = `"db"` |
+| Table is empty, `ALLOW_TRUST_RULE_FALLBACK=true` (default) | Hardcoded defaults used. `source` = `"fallback"`. Structured `warn` emitted on every request. |
+| Table is empty, `ALLOW_TRUST_RULE_FALLBACK=false` | `503 RULES_NOT_CONFIGURED` returned. No silent fallback. |
+
+### Environment variable
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ALLOW_TRUST_RULE_FALLBACK` | `true` | Set to `false` to require explicit DB rules and surface misconfiguration as a 503 instead of silently applying hardcoded defaults. Recommended `false` in production. |
+
+### Operator remediation
+
+If the backend logs `credit_rules table is empty — using hardcoded fallback defaults`:
+
+1. Verify the seed ran: `docker compose exec backend npx ts-node prisma/seed.ts`
+2. Or manually seed via the API (ADMIN token required):
+   ```bash
+   curl -X PUT http://localhost:3000/api/trust/admin/credit-rules \
+     -H "Authorization: Bearer <admin-token>" \
+     -H "Content-Type: application/json" \
+     -d '{"1":-2,"2":-1,"3":0,"4":1,"5":2}'
+   ```
+3. To prevent silent fallback in production, add `ALLOW_TRUST_RULE_FALLBACK=false` to your
+   environment and confirm rules are seeded before deployment.
+
+### Admin observability endpoint
+
+`GET /api/trust/admin/credit-rules` (ADMIN only) returns:
+```json
+{
+  "success": true,
+  "data": {
+    "rules": { "1": -2, "2": -1, "3": 0, "4": 1, "5": 2 },
+    "source": "db",
+    "fallbackEnabled": true
+  }
+}
+```
+`source` is `"db"` when rules come from the database and `"fallback"` when hardcoded defaults
+are active. Monitor `fallbackEnabled` to detect environments where `ALLOW_TRUST_RULE_FALLBACK`
+has not been set to `false`.

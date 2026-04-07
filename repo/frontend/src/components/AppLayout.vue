@@ -92,6 +92,7 @@ import {
   BarChartOutline,
   ShieldOutline,
   PersonOutline,
+  DocumentTextOutline,
 } from '@vicons/ionicons5';
 
 const router = useRouter();
@@ -170,6 +171,11 @@ const menuOptions = computed<MenuOption[]>(() => {
 
   if (authStore.hasRole('ADMIN', 'MODERATOR')) {
     items.push({ label: 'Moderation', key: 'Moderation', icon: renderIcon(AlertCircleOutline) });
+  }
+
+  // User-facing appeals: visible to roles that can have content moderated (not MODERATOR)
+  if (authStore.hasRole('ADMIN', 'MANAGER', 'INVENTORY_CLERK', 'FRONT_DESK', 'HOST', 'GUEST')) {
+    items.push({ label: 'My Appeals', key: 'MyAppeals', icon: renderIcon(DocumentTextOutline) });
   }
 
   if (authStore.hasRole('ADMIN')) {

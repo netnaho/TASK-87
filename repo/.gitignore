@@ -33,6 +33,8 @@ test-results/
 playwright-report/
 
 # --- Environment / secrets ---
+# Never commit .env — it may contain real secrets.
+# Copy .env.example to .env and fill in real values before running docker compose.
 .env
 .env.*
 !.env.example

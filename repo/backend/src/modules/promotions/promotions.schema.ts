@@ -30,6 +30,9 @@ export const updatePromotionSchema = z.object({
   effectiveEnd: z.string().datetime().optional(),
   priority: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
+  // Optional exclusions: when present, fully replaces the existing exclusion set.
+  // Pass [] to clear all exclusions; omit the field entirely to leave them unchanged.
+  exclusions: z.array(z.number().int().positive()).optional(),
 });
 export type UpdatePromotionInput = z.infer<typeof updatePromotionSchema>;
 

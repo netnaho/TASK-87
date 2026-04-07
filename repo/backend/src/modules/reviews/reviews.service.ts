@@ -1,6 +1,8 @@
+import path from 'path';
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { filterContent } from '../../lib/contentFilter';
+import { config } from '../../config';
 import {
   CreateReviewInput,
   CreateFollowUpInput,
@@ -30,13 +32,13 @@ export class ReviewsService {
       }
     }
 
-    // Rate limit: max 3 reviews per hour
+    // Rate limit: config-driven (default 3 reviews/hour via RATE_LIMIT_REVIEWS_PER_HOUR)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentCount = await prisma.rateLimitLog.count({
       where: { userId: reviewerId, action: 'create_review', createdAt: { gte: oneHourAgo } },
     });
-    if (recentCount >= 3) {
-      businessError('RATE_LIMITED', 'Maximum 3 reviews per hour', 429);
+    if (recentCount >= config.rateLimit.reviewsPerHour) {
+      businessError('RATE_LIMITED', `Maximum ${config.rateLimit.reviewsPerHour} reviews per hour`, 429);
     }
 
     // Cannot review yourself
@@ -174,6 +176,15 @@ export class ReviewsService {
     });
     if (existing) businessError('DUPLICATE', 'Follow-up already exists for this review', 409);
 
+    // Rate limit: max followUpsPerHour per hour
+    const followUpOneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const recentFollowUps = await prisma.rateLimitLog.count({
+      where: { userId: reviewerId, action: 'create_followup', createdAt: { gte: followUpOneHourAgo } },
+    });
+    if (recentFollowUps >= config.rateLimit.followUpsPerHour) {
+      businessError('RATE_LIMITED', `Maximum ${config.rateLimit.followUpsPerHour} follow-ups per hour`, 429);
+    }
+
     if (input.text) {
       const { clean, flaggedWords } = await filterContent(input.text);
       if (!clean) {
@@ -213,6 +224,11 @@ export class ReviewsService {
       },
     });
 
+    // Log for rate limiting
+    await prisma.rateLimitLog.create({
+      data: { userId: reviewerId, action: 'create_followup' },
+    });
+
     logger.info({ followUpId: followUp.id, parentReviewId, reviewerId }, 'Follow-up created');
     return followUp;
   }
@@ -221,22 +237,29 @@ export class ReviewsService {
     reviewId: number,
     input: CreateHostReplyInput,
     hostId: number,
-    callerRole: string
+    _callerRole: string
   ) {
     const review = await prisma.review.findUnique({ where: { id: reviewId } });
     if (!review) businessError('NOT_FOUND', 'Review not found', 404);
 
     // Object-level authorization: HOST can only reply to reviews about them
-    if (callerRole !== 'ADMIN' && callerRole !== 'MANAGER') {
-      if (review!.revieweeId !== hostId) {
-        businessError('FORBIDDEN', 'You can only reply to reviews about your property', 403);
-      }
+    if (review!.revieweeId !== hostId) {
+      businessError('FORBIDDEN', 'You can only reply to reviews about your property', 403);
     }
 
     // 14-day window
     const daysSince = (Date.now() - review!.createdAt.getTime()) / (1000 * 60 * 60 * 24);
     if (daysSince > 14) {
       businessError('WINDOW_EXPIRED', 'Host reply window of 14 days has passed', 422);
+    }
+
+    // Rate limit: max hostRepliesPerHour per hour
+    const replyOneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const recentReplies = await prisma.rateLimitLog.count({
+      where: { userId: hostId, action: 'create_host_reply', createdAt: { gte: replyOneHourAgo } },
+    });
+    if (recentReplies >= config.rateLimit.hostRepliesPerHour) {
+      businessError('RATE_LIMITED', `Maximum ${config.rateLimit.hostRepliesPerHour} host replies per hour`, 429);
     }
 
     // Already replied
@@ -255,12 +278,86 @@ export class ReviewsService {
       include: { host: { select: { id: true, displayName: true } } },
     });
 
+    // Log for rate limiting
+    await prisma.rateLimitLog.create({
+      data: { userId: hostId, action: 'create_host_reply' },
+    });
+
     logger.info({ replyId: reply.id, reviewId, hostId }, 'Host reply created');
     return reply;
   }
 
   async listTags() {
     return prisma.tag.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  // ─── Image access ─────────────────────────────────────────────────────────
+
+  /**
+   * RBAC policy for review images.
+   * Allowed: the reviewer who uploaded, the reviewee (e.g. HOST), ADMIN, MANAGER, MODERATOR.
+   */
+  private checkImageAccess(
+    reviewerId: number,
+    revieweeId: number | null,
+    requesterId: number,
+    requesterRole: string
+  ): void {
+    const privileged = ['ADMIN', 'MANAGER', 'MODERATOR'];
+    const allowed =
+      requesterId === reviewerId ||
+      (revieweeId !== null && requesterId === revieweeId) ||
+      privileged.includes(requesterRole);
+    if (!allowed) businessError('FORBIDDEN', 'Access denied', 403);
+  }
+
+  /**
+   * Resolve a review image by (reviewId, imageId) and enforce object-level auth.
+   * Returns the safe on-disk filename — never the full path.
+   */
+  async getImageFileByReviewAndId(
+    reviewId: number,
+    imageId: number,
+    requesterId: number,
+    requesterRole: string
+  ): Promise<string> {
+    const image = await prisma.reviewImage.findFirst({
+      where: { id: imageId, reviewId },
+      include: { review: { select: { reviewerId: true, revieweeId: true } } },
+    });
+    if (!image) businessError('NOT_FOUND', 'Image not found', 404);
+    this.checkImageAccess(
+      image!.review.reviewerId,
+      image!.review.revieweeId,
+      requesterId,
+      requesterRole
+    );
+    return path.basename(image!.filePath);
+  }
+
+  /**
+   * Resolve a review image by stored filename and enforce object-level auth.
+   * Used by the deprecated /api/uploads/:filename compatibility shim.
+   * Returns the safe on-disk filename — never the full path.
+   */
+  async getImageFileByFilename(
+    filename: string,
+    requesterId: number,
+    requesterRole: string
+  ): Promise<string> {
+    const safe = path.basename(filename);
+    const image = await prisma.reviewImage.findFirst({
+      where: { filePath: safe },
+      include: { review: { select: { reviewerId: true, revieweeId: true } } },
+    });
+    if (!image) businessError('NOT_FOUND', 'File not found', 404);
+    this.checkImageAccess(
+      image!.review.reviewerId,
+      image!.review.revieweeId,
+      requesterId,
+      requesterRole
+    );
+    return safe;
   }
 }
 

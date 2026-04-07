@@ -4,6 +4,13 @@ import prisma from '../../lib/prisma';
 import { exportToCsv, exportToExcel } from '../../lib/exporter';
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
+import {
+  fetchRiskDay,
+  buildAuthorActionMap,
+  computeHideRemoveRate,
+  computeAppealOverturnRate,
+  computeRepeatOffenderCount,
+} from './riskReportAggregator';
 
 async function generateKpiSummary(): Promise<{ data: Record<string, unknown>[]; columns: string[] }> {
   const kpis = await prisma.kpiDaily.findMany({ orderBy: { date: 'desc' }, take: 30 });
@@ -52,10 +59,71 @@ async function generateInventorySnapshot(): Promise<{ data: Record<string, unkno
   return { data, columns };
 }
 
+/**
+ * REVIEW_RISK — 30-day rolling risk analytics.
+ *
+ * Columns:
+ *   date                  — UTC calendar day
+ *   flaggedContentCount   — reports filed on this day
+ *   hideRemoveRate        — % of moderation actions that were HIDE or REMOVE
+ *   appealOverturnRate    — % of finalised appeals that were OVERTURNED
+ *   windowRepeatOffenders — distinct review authors with ≥2 HIDE/REMOVE
+ *                           actions in the full 30-day window (snapshot,
+ *                           same value on every row)
+ *
+ * Each row covers one UTC calendar day; newest day is the last row.
+ */
+async function generateReviewRisk(): Promise<{ data: Record<string, unknown>[]; columns: string[] }> {
+  const DAYS = 30;
+  const columns = [
+    'date',
+    'flaggedContentCount',
+    'hideRemoveRate',
+    'appealOverturnRate',
+    'windowRepeatOffenders',
+  ];
+
+  // Window boundaries: today 00:00 UTC back 30 days
+  const windowEnd = new Date();
+  windowEnd.setUTCHours(0, 0, 0, 0);
+  const windowStart = new Date(windowEnd);
+  windowStart.setUTCDate(windowStart.getUTCDate() - DAYS);
+
+  // Compute window-level repeat offenders once (same value on every row)
+  const authorMap = await buildAuthorActionMap(windowStart, windowEnd, prisma);
+  const windowRepeatOffenders = computeRepeatOffenderCount(authorMap);
+
+  // Build one row per day, oldest → newest
+  const data: Record<string, unknown>[] = [];
+  for (let i = DAYS - 1; i >= 0; i--) {
+    const dayStart = new Date(windowEnd);
+    dayStart.setUTCDate(dayStart.getUTCDate() - i);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+    const raw = await fetchRiskDay(dayStart, dayEnd, prisma);
+
+    data.push({
+      date: dayStart.toISOString().slice(0, 10),
+      flaggedContentCount: raw.flaggedContentCount,
+      hideRemoveRate: Number(
+        computeHideRemoveRate(raw.hideRemoveActionCount, raw.totalActionCount).toFixed(2),
+      ),
+      appealOverturnRate: Number(
+        computeAppealOverturnRate(raw.overturnedAppeals, raw.finalisedAppeals).toFixed(2),
+      ),
+      windowRepeatOffenders,
+    });
+  }
+
+  return { data, columns };
+}
+
 const generators: Record<string, () => Promise<{ data: Record<string, unknown>[]; columns: string[] }>> = {
   KPI_SUMMARY: generateKpiSummary,
   REVIEW_EFFICIENCY: generateReviewEfficiency,
   INVENTORY_SNAPSHOT: generateInventorySnapshot,
+  REVIEW_RISK: generateReviewRisk,
 };
 
 export async function processScheduledReport(reportId: number) {

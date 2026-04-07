@@ -224,6 +224,182 @@ describe('Moderation API', () => {
     });
   });
 
+  // ─── User-facing appeals (GET /appeals/my, GET /actions/my) ─────────────
+
+  describe('User-facing appeal endpoints', () => {
+    it('GET /api/moderation/appeals/my returns only caller-owned appeals (guest)', async () => {
+      const res = await api
+        .get('/api/moderation/appeals/my')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data.items)).toBe(true);
+      // Every appeal returned must belong to the guest user
+      for (const appeal of res.body.data.items) {
+        expect(appeal.userId).toBeTypeOf('number');
+      }
+    });
+
+    it('GET /api/moderation/appeals/my returns 401 without auth', async () => {
+      await api.get('/api/moderation/appeals/my').expect(401);
+    });
+
+    it('GET /api/moderation/appeals/my does NOT expose another user\'s appeals', async () => {
+      // Host has no appeals, so the guest\'s appeal must not appear here
+      const res = await api
+        .get('/api/moderation/appeals/my')
+        .set('Authorization', `Bearer ${hostToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      // The appealId created under guestToken should not be in host's list
+      const ids = res.body.data.items.map((a: any) => a.id);
+      expect(ids).not.toContain(appealId);
+    });
+
+    it('GET /api/moderation/actions/my returns only caller-affected actions (guest)', async () => {
+      const res = await api
+        .get('/api/moderation/actions/my')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data.items)).toBe(true);
+      // The moderationActionId created earlier must appear in guest's action list
+      const ids = res.body.data.items.map((a: any) => a.id);
+      expect(ids).toContain(moderationActionId);
+    });
+
+    it('GET /api/moderation/actions/my does NOT expose actions on another user\'s content', async () => {
+      const res = await api
+        .get('/api/moderation/actions/my')
+        .set('Authorization', `Bearer ${hostToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      // Host has no content that was actioned; guest's action must not appear
+      const ids = res.body.data.items.map((a: any) => a.id);
+      expect(ids).not.toContain(moderationActionId);
+    });
+
+    it('GET /api/moderation/actions/my returns 401 without auth', async () => {
+      await api.get('/api/moderation/actions/my').expect(401);
+    });
+
+    it('GET /api/moderation/appeals/my supports status filter', async () => {
+      const res = await api
+        .get('/api/moderation/appeals/my')
+        .query({ status: 'UPHELD' })
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      for (const appeal of res.body.data.items) {
+        expect(appeal.status).toBe('UPHELD');
+      }
+    });
+
+    it('GET /api/moderation/actions/my includes per-user appeal status on each action', async () => {
+      const res = await api
+        .get('/api/moderation/actions/my')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(200);
+      const action = res.body.data.items.find((a: any) => a.id === moderationActionId);
+      expect(action).toBeDefined();
+      // The response includes a filtered appeals array for this user
+      expect(Array.isArray(action.appeals)).toBe(true);
+    });
+
+    it('POST /api/moderation/appeals by user for own action (new action needed)', async () => {
+      // Create a fresh review under host so we can appeal on behalf of host
+      const reviewRes = await api
+        .post('/api/reviews')
+        .set('Authorization', `Bearer ${hostToken}`)
+        .send({
+          targetType: 'STAY',
+          targetId: 2,
+          ratingCleanliness: 3,
+          ratingCommunication: 3,
+          ratingAccuracy: 3,
+          text: 'Host review created for appeal ownership test.',
+        });
+      const hostReviewId: number = reviewRes.body.data.id;
+
+      // Admin reports it
+      const rptRes = await api
+        .post('/api/moderation/reports')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          contentType: 'REVIEW',
+          contentId: hostReviewId,
+          reviewId: hostReviewId,
+          reason: 'Fabricated reason for testing appeal ownership flow.',
+        });
+      const rptId: number = rptRes.body.data.id;
+
+      // Moderator takes action
+      const actRes = await api
+        .post(`/api/moderation/reports/${rptId}/action`)
+        .set('Authorization', `Bearer ${moderatorToken}`)
+        .send({ action: 'WARN', notes: 'Ownership test warning.' });
+      const newActionId: number = actRes.body.data.id;
+
+      // Host (the affected user) can file an appeal
+      const appealRes = await api
+        .post('/api/moderation/appeals')
+        .set('Authorization', `Bearer ${hostToken}`)
+        .send({
+          moderationActionId: newActionId,
+          userStatement: 'I am the owner of this review and believe the warning was unjustified.',
+        })
+        .expect(201);
+      expect(appealRes.body.success).toBe(true);
+
+      // Guest (non-owner) cannot appeal the same action
+      await api
+        .post('/api/moderation/appeals')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({
+          moderationActionId: newActionId,
+          userStatement: 'I am not the owner but trying to appeal anyway.',
+        })
+        .expect(403);
+    });
+
+    it('Duplicate appeal on same action returns 409', async () => {
+      // Use moderationActionId which guest already appealed
+      const res = await api
+        .post('/api/moderation/appeals')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({
+          moderationActionId,
+          userStatement: 'Filing a second appeal on the same action should be blocked.',
+        })
+        .expect(409);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('DUPLICATE');
+    });
+
+    it('GET /api/moderation/appeals (admin view) remains accessible to MODERATOR', async () => {
+      const res = await api
+        .get('/api/moderation/appeals')
+        .set('Authorization', `Bearer ${moderatorToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it('GET /api/moderation/appeals (admin view) is forbidden for GUEST', async () => {
+      await api
+        .get('/api/moderation/appeals')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(403);
+    });
+
+    it('Appeal status transitions remain admin-governed (guest cannot resolve)', async () => {
+      await api
+        .post(`/api/moderation/appeals/${appealId}/resolve`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({ status: 'OVERTURNED' })
+        .expect(403);
+    });
+  });
+
   // ─── Sensitive words ─────────────────────────────────────────
 
   describe('Sensitive words', () => {

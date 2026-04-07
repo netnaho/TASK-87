@@ -44,7 +44,10 @@ export const receiveSchema = z.object({
   packSize: z.number().int().positive().optional(),
   deliveryDatetime: z.string().datetime().optional(),
   lotNumber: z.string().min(1).max(100).optional(),
-  expirationDate: z.string().datetime().optional(),
+  expirationDate: z.string().refine(
+    (s) => !isNaN(Date.parse(s)),
+    { message: 'Invalid date format for expirationDate — use ISO datetime or YYYY-MM-DD' }
+  ).optional(),
   notes: z.string().optional(),
 }).refine((d) => d.itemId || d.barcode, { message: 'Either itemId or barcode is required' });
 export type ReceiveInput = z.infer<typeof receiveSchema>;

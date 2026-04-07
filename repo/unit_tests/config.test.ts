@@ -87,7 +87,7 @@ describe('config - secret missing in production', () => {
   });
 
   it('throws for ENCRYPTION_KEY when NODE_ENV=production', async () => {
-    process.env.JWT_SECRET = 'some-jwt';
+    process.env.JWT_SECRET = 'a'.repeat(64); // strong enough to pass weak-secret check
     delete process.env.ENCRYPTION_KEY;
     process.env.NODE_ENV = 'production';
     process.env.ALLOW_INSECURE_DEV_SECRETS = 'true'; // opt-in ignored in production
@@ -194,6 +194,116 @@ describe('config - secret missing with ALLOW_INSECURE_DEV_SECRETS=true', () => {
 
     const { config } = await loadConfig();
     expect(config.jwt.secret).toBe('dev-only-jwt-secret-not-for-production');
+  });
+});
+
+// ─── Branch 2b: weak/placeholder secret provided in production ────────────────
+
+describe('config - weak secret provided in production', () => {
+  beforeEach(() => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.ALLOW_INSECURE_DEV_SECRETS;
+  });
+
+  const STRONG = 'a'.repeat(64); // 64-char string, no weak patterns
+
+  it('throws for JWT_SECRET matching the committed placeholder value', async () => {
+    process.env.JWT_SECRET = 'harborops-dev-jwt-secret-not-for-production';
+    process.env.ENCRYPTION_KEY = STRONG;
+
+    await expect(loadConfig()).rejects.toThrow('JWT_SECRET');
+  });
+
+  it('throws for ENCRYPTION_KEY matching the committed hex placeholder', async () => {
+    process.env.JWT_SECRET = STRONG;
+    process.env.ENCRYPTION_KEY = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4';
+
+    await expect(loadConfig()).rejects.toThrow('ENCRYPTION_KEY');
+  });
+
+  it('throws for a secret containing the "dev-only" pattern', async () => {
+    process.env.JWT_SECRET = 'dev-only-jwt-secret-padding-to-make-it-long-enough';
+    process.env.ENCRYPTION_KEY = STRONG;
+
+    await expect(loadConfig()).rejects.toThrow('JWT_SECRET');
+  });
+
+  it('throws for a secret containing the "not-for-production" pattern', async () => {
+    process.env.JWT_SECRET = 'some-secret-not-for-production-padding-here-extra';
+    process.env.ENCRYPTION_KEY = STRONG;
+
+    await expect(loadConfig()).rejects.toThrow('JWT_SECRET');
+  });
+
+  it('throws for a secret containing the "replace-with" pattern', async () => {
+    process.env.JWT_SECRET = 'replace-with-a-real-secret-from-openssl-rand-hex-32';
+    process.env.ENCRYPTION_KEY = STRONG;
+
+    await expect(loadConfig()).rejects.toThrow('JWT_SECRET');
+  });
+
+  it('throws for a secret shorter than 32 characters', async () => {
+    process.env.JWT_SECRET = 'short-secret'; // 12 chars
+    process.env.ENCRYPTION_KEY = STRONG;
+
+    await expect(loadConfig()).rejects.toThrow('JWT_SECRET');
+  });
+
+  it('error message mentions openssl rand', async () => {
+    process.env.JWT_SECRET = 'harborops-dev-jwt-secret-not-for-production';
+    process.env.ENCRYPTION_KEY = STRONG;
+
+    await expect(loadConfig()).rejects.toThrow('openssl rand');
+  });
+
+  it('ALLOW_INSECURE_DEV_SECRETS=true cannot bypass weak-secret rejection in production', async () => {
+    process.env.JWT_SECRET = 'harborops-dev-jwt-secret-not-for-production';
+    process.env.ENCRYPTION_KEY = STRONG;
+    process.env.ALLOW_INSECURE_DEV_SECRETS = 'true'; // must be ignored in production
+
+    await expect(loadConfig()).rejects.toThrow('JWT_SECRET');
+  });
+
+  it('accepts strong secrets and starts normally', async () => {
+    process.env.JWT_SECRET = STRONG;
+    process.env.ENCRYPTION_KEY = STRONG;
+
+    const { config } = await loadConfig();
+    expect(config.jwt.secret).toBe(STRONG);
+    expect(config.encryption.key).toBe(STRONG);
+  });
+});
+
+// ─── isWeakSecret export ──────────────────────────────────────────────────────
+
+describe('isWeakSecret export', () => {
+  it('is exported for use by other validation utilities', async () => {
+    process.env.JWT_SECRET = 'x';
+    process.env.ENCRYPTION_KEY = 'y';
+    const mod = await loadConfig();
+    expect(typeof mod.isWeakSecret).toBe('function');
+  });
+
+  it('flags known-committed secrets as weak', async () => {
+    process.env.JWT_SECRET = 'x';
+    process.env.ENCRYPTION_KEY = 'y';
+    const { isWeakSecret } = await loadConfig();
+    expect(isWeakSecret('harborops-dev-jwt-secret-not-for-production')).toBe(true);
+    expect(isWeakSecret('a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4')).toBe(true);
+  });
+
+  it('flags short secrets as weak', async () => {
+    process.env.JWT_SECRET = 'x';
+    process.env.ENCRYPTION_KEY = 'y';
+    const { isWeakSecret } = await loadConfig();
+    expect(isWeakSecret('short')).toBe(true);
+  });
+
+  it('does not flag a long random-looking secret as weak', async () => {
+    process.env.JWT_SECRET = 'x';
+    process.env.ENCRYPTION_KEY = 'y';
+    const { isWeakSecret } = await loadConfig();
+    expect(isWeakSecret('a'.repeat(64))).toBe(false);
   });
 });
 

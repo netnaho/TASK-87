@@ -201,6 +201,17 @@
               style="width: 100%"
             />
           </n-form-item>
+          <n-form-item label="Excluded Promotions (mutually exclusive with)">
+            <n-select
+              v-model:value="promoForm.exclusionIds"
+              :options="promotionExclusionOptions"
+              multiple
+              filterable
+              clearable
+              placeholder="None — no mutual exclusions"
+              style="width: 100%"
+            />
+          </n-form-item>
         </n-form>
 
         <template #footer>
@@ -370,6 +381,7 @@ const promoForm = reactive<{
   priority: number;
   isActive: boolean;
   itemIds: number[];
+  exclusionIds: number[];
 }>({
   name: '',
   description: '',
@@ -380,6 +392,7 @@ const promoForm = reactive<{
   priority: 0,
   isActive: true,
   itemIds: [],
+  exclusionIds: [],
 });
 
 const promoRules: FormRules = {
@@ -406,6 +419,7 @@ function resetForm() {
   promoForm.priority = 0;
   promoForm.isActive = true;
   promoForm.itemIds = [];
+  promoForm.exclusionIds = [];
 }
 
 function openCreate() {
@@ -425,6 +439,7 @@ function openEdit(row: Promotion) {
   promoForm.priority = row.priority;
   promoForm.isActive = row.isActive;
   promoForm.itemIds = row.items?.map((i) => i.itemId) ?? [];
+  promoForm.exclusionIds = row.exclusionsFrom?.map((e) => e.excludedPromotionId) ?? [];
   showDrawer.value = true;
 }
 
@@ -446,6 +461,7 @@ async function savePromotion() {
       priority: promoForm.priority,
       isActive: promoForm.isActive,
       itemIds: promoForm.itemIds.length > 0 ? promoForm.itemIds : undefined,
+      exclusions: promoForm.exclusionIds,
     };
 
     if (editingId.value) {
@@ -463,6 +479,24 @@ async function savePromotion() {
     saveSubmitting.value = false;
   }
 }
+
+// ─── All Promotions (for exclusion dropdown) ─────────────────────────────────
+const allPromotions = ref<Promotion[]>([]);
+
+async function loadAllPromotions() {
+  try {
+    const res = await promotionsApi.listPromotions({ pageSize: 200 });
+    allPromotions.value = res.items;
+  } catch (err: any) {
+    errorMsg(err);
+  }
+}
+
+const promotionExclusionOptions = computed(() =>
+  allPromotions.value
+    .filter((p) => p.id !== editingId.value)
+    .map((p) => ({ label: p.name, value: p.id }))
+);
 
 // ─── Inventory Options ────────────────────────────────────────────────────────
 const inventoryItems = ref<InventoryItem[]>([]);
@@ -553,5 +587,6 @@ const checkoutItemCols: DataTableColumn<CheckoutItem>[] = [
 onMounted(() => {
   loadPromotions();
   loadInventoryItems();
+  loadAllPromotions();
 });
 </script>

@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
 import { config } from './config';
@@ -6,7 +6,10 @@ import { logger } from './lib/logger';
 import { requestLogger } from './middleware/requestLogger';
 import { errorHandler } from './middleware/errorHandler';
 import { startScheduler } from './lib/scheduler';
-import { successResponse } from './types';
+import { successResponse, errorResponse } from './types';
+import { authenticate } from './middleware/auth';
+import { reviewsService } from './modules/reviews/reviews.service';
+import { AuthenticatedRequest } from './types';
 
 // Route imports
 import authRoutes from './modules/auth/auth.routes';
@@ -28,9 +31,6 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 
-// Static file serving for uploads
-app.use('/uploads', express.static(config.upload.dir));
-
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json(successResponse({
@@ -39,6 +39,34 @@ app.get('/api/health', (_req, res) => {
     version: '1.0.0',
     uptime: process.uptime(),
   }));
+});
+
+// DEPRECATED: Use GET /api/reviews/:reviewId/images/:imageId instead.
+// This shim resolves the file through DB ownership and enforces the same object-level
+// authorization as the canonical endpoint. It will be removed in a future release.
+app.get('/api/uploads/:filename', authenticate, async (req: Request, res: Response) => {
+  const filename = path.basename(req.params.filename as string);
+  const user = (req as AuthenticatedRequest).user!;
+  let safeFilename: string;
+  try {
+    safeFilename = await reviewsService.getImageFileByFilename(filename, user.userId, user.role);
+  } catch (err: any) {
+    if (!res.headersSent) {
+      // Return the service's status code but never leak filesystem internals.
+      const status = err.statusCode ?? 404;
+      res.status(status).json(errorResponse(
+        status === 403 ? 'FORBIDDEN' : 'NOT_FOUND',
+        status === 403 ? 'Access denied' : 'File not found'
+      ));
+    }
+    return;
+  }
+  const filePath = path.resolve(config.upload.dir, safeFilename);
+  res.sendFile(filePath, (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).json(errorResponse('NOT_FOUND', 'File not found'));
+    }
+  });
 });
 
 // API routes

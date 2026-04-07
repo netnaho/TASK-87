@@ -338,6 +338,17 @@ model HostReply {
 
 // ─── TRUST & CREDIT ─────────────────────────────────────────────
 
+// Admin-managed rating→delta overrides. Empty table = use application defaults.
+model CreditRule {
+  id        Int      @id @default(autoincrement())
+  rating    Int      @unique @db.TinyInt   // 1–5
+  delta     Int      @db.SmallInt          // credit change per rating
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("credit_rules")
+}
+
 model TrustScore {
   id          Int      @id @default(autoincrement())
   userId      Int      @unique @map("user_id")

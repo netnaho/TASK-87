@@ -88,4 +88,47 @@ describe('RBAC - Role-Based Access Control', () => {
         .expect(403);
     });
   });
+
+  describe('Trust credit-rule metadata endpoint', () => {
+    it('GET /api/trust/admin/credit-rules is accessible to ADMIN', async () => {
+      const token = await loginAs(demoUsers.admin.username, demoUsers.admin.password);
+      const res = await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('rules');
+      expect(res.body.data).toHaveProperty('source');
+      expect(res.body.data).toHaveProperty('fallbackEnabled');
+    });
+
+    it('GET /api/trust/admin/credit-rules is denied for MANAGER (admin-only endpoint)', async () => {
+      const token = await loginAs(demoUsers.manager.username, demoUsers.manager.password);
+      await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+
+    it('GET /api/trust/admin/credit-rules is denied for MODERATOR', async () => {
+      const token = await loginAs(demoUsers.moderator.username, demoUsers.moderator.password);
+      await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+
+    it('GET /api/trust/admin/credit-rules is denied for GUEST', async () => {
+      const token = await loginAs(demoUsers.guest.username, demoUsers.guest.password);
+      await api
+        .get('/api/trust/admin/credit-rules')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(403);
+    });
+
+    it('GET /api/trust/admin/credit-rules returns 401 without authentication', async () => {
+      await api.get('/api/trust/admin/credit-rules').expect(401);
+    });
+  });
 });

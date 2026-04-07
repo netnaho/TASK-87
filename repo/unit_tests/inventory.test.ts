@@ -1,50 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import {
+  computeVarianceResult,
+  isLowStock,
+  validateTransferQty,
+  validateReceiveInput,
+  generateRefNum,
+} from '@/modules/inventory/inventory.utils';
 
-// ─── Variance calculation (mirrors service.finalizeStockCount logic) ──
-
-interface Line {
-  systemQty: number;
-  countedQty: number;
-  unitPrice?: number | null;
-}
-
-interface ProcessedLine {
-  varianceQty: number;
-  variancePct: number | null;
-  varianceUsd: number | null;
-}
-
-interface VarianceResult {
-  processed: ProcessedLine[];
-  overallVariancePct: number;
-  totalVarianceUsd: number;
-  needsApproval: boolean;
-}
-
-function computeVarianceResult(
-  lines: Line[],
-  varianceApprovalPct = 5,
-  varianceApprovalUsd = 250
-): VarianceResult {
-  const processed: ProcessedLine[] = lines.map((l) => {
-    const varianceQty = l.countedQty - l.systemQty;
-    const variancePct =
-      l.systemQty === 0 ? null : (Math.abs(varianceQty) / l.systemQty) * 100;
-    const varianceUsd =
-      l.unitPrice != null ? Math.abs(varianceQty) * l.unitPrice : null;
-    return { varianceQty, variancePct, varianceUsd };
-  });
-
-  const totalSystemQty = lines.reduce((s, l) => s + l.systemQty, 0);
-  const totalAbsVarianceQty = processed.reduce((s, l) => s + Math.abs(l.varianceQty), 0);
-  const totalVarianceUsd = processed.reduce((s, l) => s + (l.varianceUsd ?? 0), 0);
-  const overallVariancePct =
-    totalSystemQty === 0 ? 0 : (totalAbsVarianceQty / totalSystemQty) * 100;
-  const needsApproval =
-    overallVariancePct > varianceApprovalPct || totalVarianceUsd > varianceApprovalUsd;
-
-  return { processed, overallVariancePct, totalVarianceUsd, needsApproval };
-}
+// ─── Variance Calculation ──────────────────────────────────────────────────
 
 describe('Inventory - Variance Calculation', () => {
   it('zero variance auto-approves', () => {
@@ -104,12 +67,7 @@ describe('Inventory - Variance Calculation', () => {
   });
 });
 
-// ─── Low-stock threshold formula ─────────────────────────────────
-
-function isLowStock(onHand: number, safetyThreshold: number, avgDailyUsage: number): boolean {
-  const threshold = Math.max(safetyThreshold, avgDailyUsage * 7);
-  return onHand < threshold;
-}
+// ─── Low Stock Threshold ───────────────────────────────────────────────────
 
 describe('Inventory - Low Stock Threshold', () => {
   it('uses safetyThreshold when it is the higher value', () => {
@@ -141,71 +99,41 @@ describe('Inventory - Low Stock Threshold', () => {
   });
 });
 
-// ─── Transfer validation (mirrors service.transfer guard) ─────────
-
-interface TransferValidation {
-  valid: boolean;
-  error?: string;
-}
-
-function validateTransfer(onHand: number, requested: number): TransferValidation {
-  if (requested <= 0) return { valid: false, error: 'INVALID_QUANTITY' };
-  if (requested > onHand) return { valid: false, error: 'INSUFFICIENT_STOCK' };
-  return { valid: true };
-}
+// ─── Transfer Quantity Validation ─────────────────────────────────────────
 
 describe('Inventory - Transfer Quantity Validation', () => {
   it('rejects when requested quantity exceeds onHand', () => {
-    const result = validateTransfer(10, 15);
+    const result = validateTransferQty(10, 15);
     expect(result.valid).toBe(false);
-    expect(result.error).toBe('INSUFFICIENT_STOCK');
+    expect(result.errorCode).toBe('INSUFFICIENT_STOCK');
   });
 
   it('allows transfer when requested equals onHand', () => {
-    expect(validateTransfer(10, 10).valid).toBe(true);
+    expect(validateTransferQty(10, 10).valid).toBe(true);
   });
 
   it('allows transfer when requested is less than onHand', () => {
-    expect(validateTransfer(10, 5).valid).toBe(true);
+    expect(validateTransferQty(10, 5).valid).toBe(true);
   });
 
   it('rejects zero quantity', () => {
-    const result = validateTransfer(100, 0);
+    const result = validateTransferQty(100, 0);
     expect(result.valid).toBe(false);
-    expect(result.error).toBe('INVALID_QUANTITY');
+    expect(result.errorCode).toBe('INVALID_QUANTITY');
   });
 
   it('rejects transfer from empty stock', () => {
-    const result = validateTransfer(0, 1);
+    const result = validateTransferQty(0, 1);
     expect(result.valid).toBe(false);
-    expect(result.error).toBe('INSUFFICIENT_STOCK');
+    expect(result.errorCode).toBe('INSUFFICIENT_STOCK');
   });
 });
 
-// ─── Lot-controlled receiving validation ─────────────────────────
-
-interface ReceiveValidationInput {
-  lotNumber?: string;
-  expirationDate?: string;
-}
-
-interface ItemFlags {
-  isLotControlled: boolean;
-  requiresExpiration: boolean;
-}
-
-type ReceiveValidationError = 'LOT_REQUIRED' | 'EXPIRATION_REQUIRED' | null;
-
-/** Mirrors the guard logic in inventory.service.ts receive() */
-function validateReceive(item: ItemFlags, input: ReceiveValidationInput): ReceiveValidationError {
-  if (item.isLotControlled && !input.lotNumber) return 'LOT_REQUIRED';
-  if (item.requiresExpiration && !input.expirationDate) return 'EXPIRATION_REQUIRED';
-  return null;
-}
+// ─── Lot-controlled Receiving Validation ──────────────────────────────────
 
 describe('Inventory - Lot-controlled Receiving Validation', () => {
   it('rejects lot-controlled item with missing lotNumber', () => {
-    const err = validateReceive(
+    const err = validateReceiveInput(
       { isLotControlled: true, requiresExpiration: false },
       { lotNumber: undefined }
     );
@@ -213,7 +141,7 @@ describe('Inventory - Lot-controlled Receiving Validation', () => {
   });
 
   it('rejects item with requiresExpiration when expirationDate is missing', () => {
-    const err = validateReceive(
+    const err = validateReceiveInput(
       { isLotControlled: true, requiresExpiration: true },
       { lotNumber: 'LOT-001', expirationDate: undefined }
     );
@@ -221,7 +149,7 @@ describe('Inventory - Lot-controlled Receiving Validation', () => {
   });
 
   it('accepts lot-controlled + requiresExpiration item with both fields present', () => {
-    const err = validateReceive(
+    const err = validateReceiveInput(
       { isLotControlled: true, requiresExpiration: true },
       { lotNumber: 'LOT-001', expirationDate: '2025-12-31T00:00:00.000Z' }
     );
@@ -229,7 +157,7 @@ describe('Inventory - Lot-controlled Receiving Validation', () => {
   });
 
   it('accepts lot-controlled item without expiration when requiresExpiration is false', () => {
-    const err = validateReceive(
+    const err = validateReceiveInput(
       { isLotControlled: true, requiresExpiration: false },
       { lotNumber: 'LOT-001', expirationDate: undefined }
     );
@@ -237,7 +165,7 @@ describe('Inventory - Lot-controlled Receiving Validation', () => {
   });
 
   it('accepts non-lot-controlled item with neither field', () => {
-    const err = validateReceive(
+    const err = validateReceiveInput(
       { isLotControlled: false, requiresExpiration: false },
       {}
     );
@@ -246,7 +174,7 @@ describe('Inventory - Lot-controlled Receiving Validation', () => {
 
   it('requiresExpiration enforcement applies even when not lot-controlled', () => {
     // Edge case: item requires expiration tracking but is not lot-controlled
-    const err = validateReceive(
+    const err = validateReceiveInput(
       { isLotControlled: false, requiresExpiration: true },
       { expirationDate: undefined }
     );
@@ -255,7 +183,7 @@ describe('Inventory - Lot-controlled Receiving Validation', () => {
 
   it('LOT_REQUIRED is checked before EXPIRATION_REQUIRED', () => {
     // Both fields missing on item that requires both — first error should be LOT_REQUIRED
-    const err = validateReceive(
+    const err = validateReceiveInput(
       { isLotControlled: true, requiresExpiration: true },
       {}
     );
@@ -263,13 +191,7 @@ describe('Inventory - Lot-controlled Receiving Validation', () => {
   });
 });
 
-// ─── Reference number generation ─────────────────────────────────
-
-function generateRefNum(type: 'RCV' | 'ISS' | 'TRF' | 'STC' | 'ADJ'): string {
-  const yyyymmdd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `${type}-${yyyymmdd}-${rand}`;
-}
+// ─── Reference Number ─────────────────────────────────────────────────────
 
 describe('Inventory - Reference Number', () => {
   it('produces a correctly formatted reference number', () => {

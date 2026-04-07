@@ -8,6 +8,11 @@ import {
   AddSensitiveWordInput,
 } from './moderation.schema';
 import { cache } from '../../lib/cache';
+import {
+  canAppealTransition,
+  getReviewStatusAfterAction,
+  shouldRestoreOnOverturned,
+} from './moderation.utils';
 
 function businessError(code: string, message: string, statusCode: number): never {
   throw Object.assign(new Error(message), { statusCode, code });
@@ -118,11 +123,7 @@ export class ModerationService {
 
       // Side-effect on review status
       if (report!.reviewId) {
-        let reviewStatus: string | null = null;
-        if (input.action === 'HIDE') reviewStatus = 'HIDDEN';
-        else if (input.action === 'REMOVE') reviewStatus = 'REMOVED';
-        else if (input.action === 'RESTORE') reviewStatus = 'ACTIVE';
-
+        const reviewStatus = getReviewStatusAfterAction(input.action);
         if (reviewStatus) {
           await tx.review.update({
             where: { id: report!.reviewId },
@@ -244,12 +245,7 @@ export class ModerationService {
     if (!appeal) businessError('NOT_FOUND', 'Appeal not found', 404);
 
     // State machine: PENDING/IN_REVIEW → UPHELD/OVERTURNED/IN_REVIEW
-    const validTransitions: Record<string, string[]> = {
-      PENDING: ['IN_REVIEW', 'UPHELD', 'OVERTURNED'],
-      IN_REVIEW: ['UPHELD', 'OVERTURNED'],
-    };
-    const allowed = validTransitions[appeal!.status] ?? [];
-    if (!allowed.includes(input.status)) {
+    if (!canAppealTransition(appeal!.status, input.status)) {
       businessError('INVALID_STATE', `Cannot transition from ${appeal!.status} to ${input.status}`, 422);
     }
 
@@ -270,7 +266,7 @@ export class ModerationService {
       if (input.status === 'OVERTURNED') {
         const originalAction = appeal!.moderationAction.action;
         const reviewId = appeal!.moderationAction.report.reviewId;
-        if (reviewId && (originalAction === 'HIDE' || originalAction === 'REMOVE')) {
+        if (reviewId && shouldRestoreOnOverturned(originalAction)) {
           await tx.review.update({
             where: { id: reviewId },
             data: { status: 'ACTIVE' },
@@ -283,6 +279,89 @@ export class ModerationService {
 
     logger.info({ appealId, status: input.status }, 'Appeal resolved');
     return updated;
+  }
+
+  // ─── User-facing endpoints ────────────────────────────────────────────────────
+
+  async listMyAppeals(userId: number, status?: string, page = 1, pageSize = 20) {
+    const skip = (page - 1) * pageSize;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = { userId };
+    if (status) where.status = status;
+
+    const [items, total] = await Promise.all([
+      prisma.appeal.findMany({
+        where,
+        skip,
+        take: pageSize,
+        include: {
+          moderationAction: {
+            include: {
+              moderator: { select: { id: true, displayName: true } },
+              report: {
+                select: { id: true, contentType: true, contentId: true, reviewId: true },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.appeal.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+  }
+
+  async listMyModerationActions(userId: number, page = 1, pageSize = 20) {
+    const skip = (page - 1) * pageSize;
+
+    // Gather all review IDs belonging to this user
+    const userReviews = await prisma.review.findMany({
+      where: { reviewerId: userId },
+      select: { id: true },
+    });
+    const reviewIds = userReviews.map((r) => r.id);
+
+    // Build the where clause — actions affecting user's reviews OR user account directly
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any =
+      reviewIds.length > 0
+        ? {
+            OR: [
+              { report: { contentType: 'REVIEW', reviewId: { in: reviewIds } } },
+              { report: { contentType: 'REVIEW', contentId: { in: reviewIds } } },
+              { report: { contentType: 'USER', contentId: userId } },
+            ],
+          }
+        : { report: { contentType: 'USER', contentId: userId } };
+
+    const [items, total] = await Promise.all([
+      prisma.moderationAction.findMany({
+        where,
+        skip,
+        take: pageSize,
+        include: {
+          report: {
+            select: {
+              id: true,
+              contentType: true,
+              contentId: true,
+              reviewId: true,
+              reason: true,
+            },
+          },
+          // Only include this user's own appeals so the client knows if already appealed
+          appeals: {
+            where: { userId },
+            select: { id: true, status: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.moderationAction.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   }
 
   async addSensitiveWord(input: AddSensitiveWordInput) {

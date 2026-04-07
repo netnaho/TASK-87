@@ -195,6 +195,26 @@ async function main() {
     }
   }
 
+  // Seed default credit rules only when the table is empty.
+  // This ensures new deployments have explicit, auditable DB rows rather than
+  // silently relying on the in-code fallback in getCreditRules().
+  // Existing operator-configured rules are never overwritten.
+  const existingRuleCount = await prisma.creditRule.count();
+  if (existingRuleCount === 0) {
+    await prisma.creditRule.createMany({
+      data: [
+        { rating: 5, delta: 2 },
+        { rating: 4, delta: 1 },
+        { rating: 3, delta: 0 },
+        { rating: 2, delta: -1 },
+        { rating: 1, delta: -2 },
+      ],
+    });
+    console.log('Seeded default credit rules (5★→+2, 4★→+1, 3★→0, 2★→-1, 1★→-2)');
+  } else {
+    console.log(`Credit rules already present (${existingRuleCount} rows), skipping seed`);
+  }
+
   console.log('Seed completed successfully');
 }
 

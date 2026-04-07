@@ -74,7 +74,7 @@
               <n-image
                 v-for="img in review.images"
                 :key="img.id"
-                :src="`/uploads/${img.filePath}`"
+                :src="`/api/reviews/${review.id}/images/${img.id}`"
                 width="100"
                 height="100"
                 object-fit="cover"
@@ -102,6 +102,16 @@
           >
             <template #icon><n-icon><ChatbubbleOutline /></n-icon></template>
             Reply
+          </n-button>
+          <!-- Appeal shortcut: shown to the review's own author when review is actioned -->
+          <n-button
+            v-if="isOwnReview && (review.status === 'HIDDEN' || review.status === 'REMOVED')"
+            type="warning"
+            secondary
+            @click="router.push({ name: 'MyAppeals' })"
+          >
+            <template #icon><n-icon><DocumentTextOutline /></n-icon></template>
+            Appeal Moderation
           </n-button>
         </n-space>
       </n-card>
@@ -279,7 +289,7 @@ import {
   NAlert,
   NDivider,
 } from 'naive-ui';
-import { FlagOutline, ChatbubbleOutline } from '@vicons/ionicons5';
+import { FlagOutline, ChatbubbleOutline, DocumentTextOutline } from '@vicons/ionicons5';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../stores/auth';
 import { reviewsApi } from '../../api/reviews';
@@ -320,6 +330,10 @@ const targetTypeColor: Record<string, 'info' | 'warning'> = {
   STAY: 'info',
   TASK: 'warning',
 };
+
+const isOwnReview = computed(
+  () => !!(review.value && authStore.user && review.value.reviewerId === authStore.user.id)
+);
 
 const canAddFollowUp = computed(() => {
   if (!review.value) return false;

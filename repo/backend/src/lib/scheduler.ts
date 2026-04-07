@@ -31,45 +31,13 @@ export function startScheduler(): void {
 // ─── Nightly KPI aggregation (2 AM) ─────────────────────────────
 registerJob('nightly-kpi-aggregation', '0 2 * * *', async () => {
   const prisma = (await import('./prisma')).default;
+  const { aggregateKpiDaily } = await import('./kpiDailyAggregator');
 
+  // Compute for yesterday (UTC midnight boundaries)
   const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  yesterday.setHours(0, 0, 0, 0);
-  const today = new Date(yesterday);
-  today.setDate(today.getDate() + 1);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
 
-  // DAU: count distinct users who generated rate limit log entries yesterday
-  const dauRows = await prisma.rateLimitLog.groupBy({
-    by: ['userId'],
-    where: { createdAt: { gte: yesterday, lt: today } },
-  });
-  const dau = dauRows.length;
-
-  // Inventory turnover proxy: total ISSUE qty yesterday / avg onHand
-  const issueAgg = await prisma.inventoryLedger.aggregate({
-    _sum: { quantity: true },
-    where: { movementType: 'ISSUE', createdAt: { gte: yesterday, lt: today } },
-  });
-  const totalIssues = issueAgg._sum.quantity ?? 0;
-
-  const avgStockResult = await prisma.stockLevel.aggregate({ _avg: { onHand: true } });
-  const avgStock = Number(avgStockResult._avg.onHand ?? 1);
-  const conversionRate = avgStock > 0 ? totalIssues / avgStock : 0;
-
-  await prisma.kpiDaily.upsert({
-    where: { date: yesterday },
-    create: {
-      date: yesterday,
-      dau,
-      conversionRate,
-      aov: 0,
-      repurchaseRate: 0,
-      refundRate: 0,
-    },
-    update: { dau, conversionRate },
-  });
-
-  logger.info({ date: yesterday.toISOString().slice(0, 10), dau, conversionRate }, 'KPI aggregation completed');
+  await aggregateKpiDaily(yesterday, prisma);
 });
 
 // ─── Nightly average daily usage update (3 AM) ──────────────────
@@ -109,17 +77,9 @@ registerJob('nightly-avg-usage-update', '0 3 * * *', async () => {
 registerJob('nightly-low-stock-reorder', '0 4 * * *', async () => {
   const prisma = (await import('./prisma')).default;
 
-  const lowStockItems = await prisma.stockLevel.findMany({
-    where: {
-      onHand: { lte: prisma.stockLevel.fields.safetyThreshold },
-    },
-    include: {
-      item: { select: { id: true, name: true, sku: true } },
-      location: { select: { id: true, name: true } },
-    },
-  });
-
-  // Workaround: raw query for column-to-column comparison
+  // Dynamic threshold mirrors computeLowStockThreshold() in inventory.utils.ts:
+  //   threshold = max(safetyThreshold, avgDailyUsage * LOW_STOCK_DAYS_COVER[=7])
+  // If LOW_STOCK_DAYS_COVER ever changes, update the multiplier below to match.
   const lowStock = await prisma.$queryRaw<Array<{
     id: number;
     itemId: number;
@@ -136,7 +96,7 @@ registerJob('nightly-low-stock-reorder', '0 4 * * *', async () => {
     FROM stock_levels sl
     JOIN items i ON i.id = sl.item_id
     JOIN locations l ON l.id = sl.location_id
-    WHERE sl.on_hand <= sl.safety_threshold
+    WHERE sl.on_hand < GREATEST(sl.safety_threshold, sl.avg_daily_usage * 7)
   `;
 
   if (lowStock.length > 0) {

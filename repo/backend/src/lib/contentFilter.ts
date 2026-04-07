@@ -13,9 +13,14 @@ export async function loadSensitiveWords(): Promise<string[]> {
   return wordList;
 }
 
+/** Normalize text for filter matching: lowercase + strip non-alphanumeric (preserving spaces). */
+export function normalizeForFilter(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+}
+
 export async function filterContent(text: string): Promise<{ clean: boolean; flaggedWords: string[] }> {
   const sensitiveWords = await loadSensitiveWords();
-  const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+  const normalized = normalizeForFilter(text);
   const flaggedWords: string[] = [];
 
   for (const word of sensitiveWords) {

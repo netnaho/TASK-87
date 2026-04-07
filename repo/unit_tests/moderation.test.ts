@@ -1,62 +1,50 @@
 import { describe, it, expect } from 'vitest';
+import {
+  canAppealTransition,
+  getReviewStatusAfterAction,
+  shouldRestoreOnOverturned,
+} from '@/modules/moderation/moderation.utils';
+import { normalizeForFilter } from '@/lib/contentFilter';
 
-// ─── Appeal state machine ────────────────────────────────────────────────────
-
-const validTransitions: Record<string, string[]> = {
-  PENDING: ['IN_REVIEW', 'UPHELD', 'OVERTURNED'],
-  IN_REVIEW: ['UPHELD', 'OVERTURNED'],
-  UPHELD: [],
-  OVERTURNED: [],
-};
-
-function canTransition(from: string, to: string): boolean {
-  return (validTransitions[from] ?? []).includes(to);
-}
+// ─── Appeal State Machine ────────────────────────────────────────────────────
 
 describe('Moderation - Appeal State Machine', () => {
   it('PENDING can move to IN_REVIEW', () => {
-    expect(canTransition('PENDING', 'IN_REVIEW')).toBe(true);
+    expect(canAppealTransition('PENDING', 'IN_REVIEW')).toBe(true);
   });
 
   it('PENDING can move to UPHELD directly', () => {
-    expect(canTransition('PENDING', 'UPHELD')).toBe(true);
+    expect(canAppealTransition('PENDING', 'UPHELD')).toBe(true);
   });
 
   it('PENDING can move to OVERTURNED directly', () => {
-    expect(canTransition('PENDING', 'OVERTURNED')).toBe(true);
+    expect(canAppealTransition('PENDING', 'OVERTURNED')).toBe(true);
   });
 
   it('IN_REVIEW can move to UPHELD', () => {
-    expect(canTransition('IN_REVIEW', 'UPHELD')).toBe(true);
+    expect(canAppealTransition('IN_REVIEW', 'UPHELD')).toBe(true);
   });
 
   it('IN_REVIEW can move to OVERTURNED', () => {
-    expect(canTransition('IN_REVIEW', 'OVERTURNED')).toBe(true);
+    expect(canAppealTransition('IN_REVIEW', 'OVERTURNED')).toBe(true);
   });
 
   it('UPHELD cannot transition further', () => {
-    expect(canTransition('UPHELD', 'OVERTURNED')).toBe(false);
-    expect(canTransition('UPHELD', 'IN_REVIEW')).toBe(false);
+    expect(canAppealTransition('UPHELD', 'OVERTURNED')).toBe(false);
+    expect(canAppealTransition('UPHELD', 'IN_REVIEW')).toBe(false);
   });
 
   it('OVERTURNED cannot transition further', () => {
-    expect(canTransition('OVERTURNED', 'UPHELD')).toBe(false);
-    expect(canTransition('OVERTURNED', 'PENDING')).toBe(false);
+    expect(canAppealTransition('OVERTURNED', 'UPHELD')).toBe(false);
+    expect(canAppealTransition('OVERTURNED', 'PENDING')).toBe(false);
   });
 
   it('unknown state returns false', () => {
-    expect(canTransition('DISMISSED', 'UPHELD')).toBe(false);
+    expect(canAppealTransition('DISMISSED', 'UPHELD')).toBe(false);
   });
 });
 
-// ─── Review status side effects ───────────────────────────────────────────────
-
-function getReviewStatusAfterAction(action: string): string | null {
-  if (action === 'HIDE') return 'HIDDEN';
-  if (action === 'REMOVE') return 'REMOVED';
-  if (action === 'RESTORE') return 'ACTIVE';
-  return null; // WARN has no review status effect
-}
+// ─── Action Side Effects ──────────────────────────────────────────────────────
 
 describe('Moderation - Action Side Effects', () => {
   it('HIDE action sets review to HIDDEN', () => {
@@ -76,11 +64,7 @@ describe('Moderation - Action Side Effects', () => {
   });
 });
 
-// ─── Review restoration on OVERTURNED appeal ─────────────────────────────────
-
-function shouldRestoreOnOverturned(originalAction: string): boolean {
-  return originalAction === 'HIDE' || originalAction === 'REMOVE';
-}
+// ─── Appeal Overturned Restoration ───────────────────────────────────────────
 
 describe('Moderation - Appeal Overturned Restoration', () => {
   it('restores review when HIDE action is overturned', () => {
@@ -100,11 +84,7 @@ describe('Moderation - Appeal Overturned Restoration', () => {
   });
 });
 
-// ─── Content filter normalization ────────────────────────────────────────────
-
-function normalizeForFilter(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, '');
-}
+// ─── Content Filter Normalization ────────────────────────────────────────────
 
 describe('Moderation - Content Filter Normalization', () => {
   it('lowercases text', () => {

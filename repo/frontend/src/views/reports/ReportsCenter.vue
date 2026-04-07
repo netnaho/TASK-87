@@ -459,6 +459,7 @@ const reportTypeOptions = [
   { label: 'KPI Summary', value: 'KPI_SUMMARY' },
   { label: 'Review Efficiency', value: 'REVIEW_EFFICIENCY' },
   { label: 'Inventory Snapshot', value: 'INVENTORY_SNAPSHOT' },
+  { label: 'Review Risk', value: 'REVIEW_RISK' },
 ];
 
 const scheduleForm = ref<{ reportType: string | null; scheduledFor: number | null }>({

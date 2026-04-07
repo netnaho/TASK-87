@@ -39,6 +39,8 @@ export const promotionsApi = {
       effectiveEnd: string;
       priority: number;
       isActive: boolean;
+      /** Replace the full exclusion set. Pass [] to clear; omit to leave unchanged. */
+      exclusions: number[];
     }>
   ): Promise<Promotion> {
     const res = await apiClient.patch(`/promotions/${id}`, data);
