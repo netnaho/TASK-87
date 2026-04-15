@@ -36,17 +36,6 @@ docker compose -f docker-compose.yml up -d
 >
 > Always generate secrets with `openssl rand -hex 32`. Never reuse secrets across environments.
 
-### Local development (outside Docker, `npm run dev`)
-
-For iterating quickly outside Docker you can skip real secrets by setting `ALLOW_INSECURE_DEV_SECRETS=true` in your `.env`. The backend will use hardcoded dev-only fallback values and print a loud warning on every startup. **This flag is ignored when `NODE_ENV=production`.**
-
-```bash
-# In your .env:
-ALLOW_INSECURE_DEV_SECRETS=true
-JWT_SECRET=any-non-empty-placeholder
-ENCRYPTION_KEY=any-non-empty-placeholder
-```
-
 ## Service Addresses
 
 | Service  | URL                              | Description              |
@@ -90,34 +79,39 @@ curl http://localhost:3000/api/health
 ### 3. Login via API
 
 ```bash
-# Login as admin
+# Login as admin — response contains the JWT token
 curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123!"}' | python3 -m json.tool
+  -d '{"username":"admin","password":"admin123!"}'
 
-# Save token for subsequent requests
+# Save token for subsequent requests (requires jq if you want to extract it automatically)
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123!"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['token'])")
+  -d '{"username":"admin","password":"admin123!"}' | docker run --rm -i ghcr.io/jqlang/jq:latest -r '.data.token')
 ```
 
 ### 4. Sample API verification
 
 ```bash
 # Inventory items
-curl -s http://localhost:3000/api/inventory/items -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s http://localhost:3000/api/inventory/items \
+  -H "Authorization: Bearer $TOKEN"
 
 # Search products
-curl -s "http://localhost:3000/api/search/products?q=towel" -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s "http://localhost:3000/api/search/products?q=towel" \
+  -H "Authorization: Bearer $TOKEN"
 
 # Trust score
-curl -s http://localhost:3000/api/trust/score -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s http://localhost:3000/api/trust/score \
+  -H "Authorization: Bearer $TOKEN"
 
 # Promotions
-curl -s http://localhost:3000/api/promotions -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s http://localhost:3000/api/promotions \
+  -H "Authorization: Bearer $TOKEN"
 
 # Low-stock alerts
-curl -s http://localhost:3000/api/inventory/low-stock -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s http://localhost:3000/api/inventory/low-stock \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### 5. Open frontend
@@ -126,26 +120,25 @@ Navigate to http://localhost:5173 and log in with any demo account. Different ro
 
 ## Test Execution
 
+`run_tests.sh` is fully self-contained — **the only prerequisite is Docker**.
+
 ```bash
-# Ensure stack is running first
-docker compose up -d
-
-# Install backend dev dependencies (one-time, if running outside Docker)
-cd backend && npm install && cd ..
-
-# Run all tests (unit + API)
-chmod +x run_tests.sh
 ./run_tests.sh
 ```
 
+The script:
+1. Calls `docker compose up -d` to start the application stack (builds images on first run)
+2. Waits for the backend health-check to pass
+3. Runs all three test suites inside an isolated `test-runner` Docker container — no Node.js or npm on the host is needed
+4. Prints a per-suite pass/fail summary and exits non-zero on any failure
+
 ### Test suites
 
-| Suite | Dir | Files | Coverage |
-|-------|-----|-------|----------|
-| Unit tests | `unit_tests/` | 15 | Auth, cache, config, encryption, exporter, inventory, KPI aggregation, low-stock, moderation, promotions, review-efficiency report, reviews, risk report, trust, types |
-| API tests | `API_tests/` | 11 | Health, auth, RBAC, smoke, inventory, reviews (incl. rate-limit), promotions, moderation, trust, search, reports |
-
-> File counts reflect the current state of the repo. Run `ls unit_tests/*.test.ts \| wc -l` and `ls API_tests/*.test.ts \| wc -l` to verify.
+| Suite | Location | What is covered |
+|-------|----------|-----------------|
+| Unit tests | `unit_tests/` | Auth, cache, config, encryption, exporter, inventory, KPI aggregation, low-stock, moderation, promotions, review-efficiency report, reviews, risk report, trust, types |
+| Frontend tests | `frontend/src/tests/` | Component logic (RoleBadge, TrustScoreGauge) and router RBAC guard smoke tests |
+| API tests | `API_tests/` | Health, auth, RBAC, smoke, inventory, reviews (incl. rate-limit), promotions, moderation, trust, search, reports, e2e flows |
 
 ## Project Structure
 

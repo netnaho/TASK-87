@@ -789,4 +789,209 @@ describe('Inventory API', () => {
       expect(res.body.success).toBe(false);
     });
   });
+
+  // ─── Item updates ─────────────────────────────────────────────
+
+  describe('PATCH /api/inventory/items/:id', () => {
+    it('ADMIN can update item details', async () => {
+      const newDesc = `Updated description ${Date.now()}`;
+      const res = await api
+        .patch(`/api/inventory/items/${firstItemId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ description: newDesc })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(firstItemId);
+      expect(res.body.data.description).toBe(newDesc);
+    });
+
+    it('INVENTORY_CLERK can update item details', async () => {
+      const res = await api
+        .patch(`/api/inventory/items/${firstItemId}`)
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({ description: 'Clerk-updated description' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(firstItemId);
+    });
+
+    it('GUEST cannot update an item (403)', async () => {
+      await api
+        .patch(`/api/inventory/items/${firstItemId}`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({ description: 'Guest attempt' })
+        .expect(403);
+    });
+
+    it('returns 401 without authentication', async () => {
+      await api
+        .patch(`/api/inventory/items/${firstItemId}`)
+        .send({ description: 'No auth' })
+        .expect(401);
+    });
+  });
+
+  // ─── Vendor management ────────────────────────────────────────
+
+  describe('POST /api/inventory/vendors', () => {
+    let newVendorId: number;
+
+    it('ADMIN can create a vendor', async () => {
+      const name = `Test Vendor ${Date.now()}`;
+      const res = await api
+        .post('/api/inventory/vendors')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name, contact: '555-0100' })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('id');
+      expect(res.body.data.name).toBe(name);
+      newVendorId = res.body.data.id;
+    });
+
+    it('MANAGER can create a vendor', async () => {
+      const name = `Manager Vendor ${Date.now()}`;
+      const res = await api
+        .post('/api/inventory/vendors')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({ name })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.name).toBe(name);
+    });
+
+    it('INVENTORY_CLERK cannot create a vendor (403)', async () => {
+      await api
+        .post('/api/inventory/vendors')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({ name: 'Clerk Vendor' })
+        .expect(403);
+    });
+
+    it('returns 400 for missing vendor name', async () => {
+      const res = await api
+        .post('/api/inventory/vendors')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ contact: '555-0101' })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+    });
+
+    describe('PATCH /api/inventory/vendors/:id', () => {
+      it('ADMIN can update a vendor', async () => {
+        const updatedName = `Updated Vendor ${Date.now()}`;
+        const res = await api
+          .patch(`/api/inventory/vendors/${newVendorId}`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ name: updatedName })
+          .expect(200);
+
+        expect(res.body.success).toBe(true);
+        expect(res.body.data.id).toBe(newVendorId);
+        expect(res.body.data.name).toBe(updatedName);
+      });
+
+      it('MANAGER can update a vendor', async () => {
+        const res = await api
+          .patch(`/api/inventory/vendors/${newVendorId}`)
+          .set('Authorization', `Bearer ${managerToken}`)
+          .send({ contact: '555-0199' })
+          .expect(200);
+
+        expect(res.body.success).toBe(true);
+      });
+
+      it('INVENTORY_CLERK cannot update a vendor (403)', async () => {
+        await api
+          .patch(`/api/inventory/vendors/${newVendorId}`)
+          .set('Authorization', `Bearer ${clerkToken}`)
+          .send({ name: 'Clerk Attempt' })
+          .expect(403);
+      });
+
+      it('returns 401 without authentication', async () => {
+        await api
+          .patch(`/api/inventory/vendors/${newVendorId}`)
+          .send({ name: 'No Auth' })
+          .expect(401);
+      });
+    });
+  });
+
+  // ─── Stock-level threshold updates ───────────────────────────
+
+  describe('PATCH /api/inventory/stock-levels/:id/threshold', () => {
+    let stockLevelId: number;
+
+    beforeAll(async () => {
+      const res = await api
+        .get('/api/inventory/stock-levels')
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .expect(200);
+
+      expect(res.body.data.length).toBeGreaterThan(0);
+      stockLevelId = res.body.data[0].id;
+    });
+
+    it('ADMIN can update a stock-level threshold', async () => {
+      const res = await api
+        .patch(`/api/inventory/stock-levels/${stockLevelId}/threshold`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ safetyThreshold: 20 })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(stockLevelId);
+      expect(res.body.data.safetyThreshold).toBe(20);
+    });
+
+    it('MANAGER can update a stock-level threshold', async () => {
+      const res = await api
+        .patch(`/api/inventory/stock-levels/${stockLevelId}/threshold`)
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({ safetyThreshold: 15 })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.safetyThreshold).toBe(15);
+    });
+
+    it('INVENTORY_CLERK cannot update threshold (403)', async () => {
+      await api
+        .patch(`/api/inventory/stock-levels/${stockLevelId}/threshold`)
+        .set('Authorization', `Bearer ${clerkToken}`)
+        .send({ safetyThreshold: 5 })
+        .expect(403);
+    });
+
+    it('GUEST cannot update threshold (403)', async () => {
+      await api
+        .patch(`/api/inventory/stock-levels/${stockLevelId}/threshold`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({ safetyThreshold: 5 })
+        .expect(403);
+    });
+
+    it('returns 401 without authentication', async () => {
+      await api
+        .patch(`/api/inventory/stock-levels/${stockLevelId}/threshold`)
+        .send({ safetyThreshold: 5 })
+        .expect(401);
+    });
+
+    it('returns 400 for negative threshold value', async () => {
+      const res = await api
+        .patch(`/api/inventory/stock-levels/${stockLevelId}/threshold`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ safetyThreshold: -1 })
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
+    });
+  });
 });

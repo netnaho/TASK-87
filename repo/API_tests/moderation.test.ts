@@ -428,5 +428,44 @@ describe('Moderation API', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data.items)).toBe(true);
     });
+
+    it('DELETE /api/moderation/sensitive-words/:id removes the word (ADMIN)', async () => {
+      // First create a word so we have a known ID to delete
+      const createRes = await api
+        .post('/api/moderation/sensitive-words')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ word: `deleteme_${Date.now()}`, category: 'test' })
+        .expect(201);
+      const wordId = createRes.body.data.id;
+      expect(typeof wordId).toBe('number');
+
+      const deleteRes = await api
+        .delete(`/api/moderation/sensitive-words/${wordId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(deleteRes.body.success).toBe(true);
+      expect(deleteRes.body.data.deleted).toBe(true);
+    });
+
+    it('DELETE /api/moderation/sensitive-words/:id returns 404 for non-existent word', async () => {
+      const res = await api
+        .delete('/api/moderation/sensitive-words/999999999')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(404);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('DELETE /api/moderation/sensitive-words/:id requires ADMIN (403 for moderator)', async () => {
+      await api
+        .delete('/api/moderation/sensitive-words/1')
+        .set('Authorization', `Bearer ${moderatorToken}`)
+        .expect(403);
+    });
+
+    it('DELETE /api/moderation/sensitive-words/:id requires authentication (401)', async () => {
+      await api
+        .delete('/api/moderation/sensitive-words/1')
+        .expect(401);
+    });
   });
 });

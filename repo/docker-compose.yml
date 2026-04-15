@@ -69,10 +69,49 @@ services:
     networks:
       - harborops
 
+  # ─── Test runner ────────────────────────────────────────────────────────────
+  # Activated only by `./run_tests.sh` (docker compose run --rm test-runner).
+  # Never starts on `docker compose up`; uses the "test" profile to stay out
+  # of the default service set.
+  #
+  # All three suites run inside this container — no Node.js or npm on the host
+  # is required. Named volumes isolate node_modules from any host copy.
+  test-runner:
+    # node:20-slim (Debian) ships OpenSSL 3, which matches the Prisma engine
+    # binary generated inside the container.  Alpine + musl requires OpenSSL 1.1
+    # compatibility shims that are absent in Alpine 3.17+ and cause a load error.
+    image: node:20-slim
+    profiles: ["test"]
+    working_dir: /app
+    volumes:
+      - .:/app
+      # Isolate node_modules from the host — prevents cross-platform ABI issues
+      # and means the container always installs its own dependency tree.
+      - backend_test_modules:/app/backend/node_modules
+      - frontend_test_modules:/app/frontend/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      # Inside the container, reach the backend and DB via Docker service names.
+      API_BASE_URL: "http://backend:3000"
+      DATABASE_URL: "mysql://harborops:harborops_pass@mysql:3306/harborops"
+      ALLOW_INSECURE_DEV_SECRETS: "true"
+    # The test logic lives in scripts/run-tests-in-container.sh so the full
+    # script is readable and not subject to YAML block-scalar folding quirks.
+    command: ["/bin/sh", "/app/scripts/run-tests-in-container.sh"]
+    networks:
+      - harborops
+
 volumes:
   mysql_data:
     driver: local
   upload_data:
+    driver: local
+  # Dedicated volumes for test-runner node_modules — isolated from the host.
+  backend_test_modules:
+    driver: local
+  frontend_test_modules:
     driver: local
 
 networks:

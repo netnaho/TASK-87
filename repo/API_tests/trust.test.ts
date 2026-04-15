@@ -215,6 +215,24 @@ describe('Trust / Credit API', () => {
       expect(res.body.data).toHaveProperty('newScore');
     });
 
+    it('POST /api/trust/admin-adjust alias behaves identically to /adjust', async () => {
+      const res = await api
+        .post('/api/trust/admin-adjust')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ userId: 2, changeAmount: -5, reason: 'Alias endpoint test' })
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('newScore');
+    });
+
+    it('POST /api/trust/admin-adjust by non-admin returns 403', async () => {
+      await api
+        .post('/api/trust/admin-adjust')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({ userId: 2, changeAmount: 5, reason: 'Unauthorized alias attempt' })
+        .expect(403);
+    });
+
     it('GET /api/trust/admin/scores returns all scores for admin', async () => {
       const res = await api
         .get('/api/trust/admin/scores')
@@ -231,6 +249,74 @@ describe('Trust / Credit API', () => {
         .send({ userId: 2, changeAmount: 10, reason: 'Unauthorized attempt' })
         .expect(403);
       expect(res.body.success).toBe(false);
+    });
+  });
+
+  // ─── Per-user score endpoint ──────────────────────────────────
+
+  describe('GET /api/trust/users/:userId/score', () => {
+    it('ADMIN can retrieve another user score', async () => {
+      const res = await api
+        .get(`/api/trust/users/${hostUserId}/score`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('score');
+      expect(Number(res.body.data.score)).toBeGreaterThanOrEqual(0);
+      expect(Number(res.body.data.score)).toBeLessThanOrEqual(100);
+    });
+
+    it('MANAGER can retrieve another user score', async () => {
+      const managerToken2 = await import('./helpers').then((h) =>
+        h.loginAs(h.demoUsers.manager.username, h.demoUsers.manager.password)
+      );
+      const res = await api
+        .get(`/api/trust/users/${hostUserId}/score`)
+        .set('Authorization', `Bearer ${managerToken2}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('score');
+    });
+
+    it('GUEST cannot retrieve another user score (403)', async () => {
+      await api
+        .get(`/api/trust/users/${hostUserId}/score`)
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(403);
+    });
+
+    it('returns 401 without authentication', async () => {
+      await api.get(`/api/trust/users/${hostUserId}/score`).expect(401);
+    });
+
+    it('returns a default score for a non-existent user (service returns fallback)', async () => {
+      const res = await api
+        .get('/api/trust/users/999999999/score')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('score');
+    });
+  });
+
+  // ─── rate-task alias ──────────────────────────────────────────
+
+  describe('POST /api/trust/rate-task alias', () => {
+    it('rate-task alias requires authentication (401)', async () => {
+      await api
+        .post('/api/trust/rate-task')
+        .send({ rateeId: 2, taskId: 1, rating: 5 })
+        .expect(401);
+    });
+
+    it('rate-task alias rejects nonexistent interaction (404)', async () => {
+      const res = await api
+        .post('/api/trust/rate-task')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .send({ rateeId: hostUserId, taskId: 999999999, rating: 5 })
+        .expect(404);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INTERACTION_NOT_FOUND');
     });
   });
 

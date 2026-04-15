@@ -1,4 +1,8 @@
 #!/bin/bash
+# HarborOps test runner — only prerequisite is Docker.
+#
+# All tests (unit, frontend component, API) run inside the test-runner
+# Docker container; no Node.js or npm installation on the host is needed.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,63 +12,35 @@ echo "========================================"
 echo "  HarborOps Test Runner"
 echo "========================================"
 
-API_BASE_URL="${API_BASE_URL:-http://localhost:3000}"
-
-# ─── Unit Tests ──────────────────────────────────────────────────
-echo ""
-echo "──────────────────────────────────────"
-echo "  Running Unit Tests"
-echo "──────────────────────────────────────"
-
-cd "$SCRIPT_DIR/backend"
-npm install --prefer-offline 2>/dev/null || npm install
-./node_modules/.bin/vitest run --config vitest.unit.config.ts --reporter=verbose
-UNIT_EXIT=$?
-
-echo ""
-echo "Unit tests exit code: $UNIT_EXIT"
-
-# ─── API Tests ───────────────────────────────────────────────────
-echo ""
-echo "──────────────────────────────────────"
-echo "  Running API Tests"
-echo "──────────────────────────────────────"
-
-echo "Checking backend at $API_BASE_URL/api/health..."
-MAX_RETRIES=30
-RETRY_COUNT=0
-until curl -sf "$API_BASE_URL/api/health" > /dev/null 2>&1; do
-  RETRY_COUNT=$((RETRY_COUNT + 1))
-  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-    echo "ERROR: Backend not reachable after $MAX_RETRIES retries"
-    echo "Make sure 'docker compose up' is running"
-    exit 1
-  fi
-  echo "  Waiting for backend... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-  sleep 2
-done
-echo "Backend is healthy!"
-
-cd "$SCRIPT_DIR/backend"
-API_BASE_URL="$API_BASE_URL" ./node_modules/.bin/vitest run --config vitest.api.config.ts --reporter=verbose
-API_EXIT=$?
-
-echo ""
-echo "API tests exit code: $API_EXIT"
-
-# ─── Summary ─────────────────────────────────────────────────────
-echo ""
-echo "========================================"
-echo "  Test Summary"
-echo "========================================"
-echo "  Unit Tests:  $([ $UNIT_EXIT -eq 0 ] && echo 'PASSED' || echo 'FAILED')"
-echo "  API Tests:   $([ $API_EXIT -eq 0 ] && echo 'PASSED' || echo 'FAILED')"
-echo "========================================"
-
-if [ $UNIT_EXIT -ne 0 ] || [ $API_EXIT -ne 0 ]; then
+# ─── Prerequisite check ──────────────────────────────────────────────────────
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: docker is not installed or not in PATH."
+  echo "Install Docker Desktop (https://docs.docker.com/get-docker/) and re-run."
   exit 1
 fi
 
-echo ""
-echo "All tests passed!"
-exit 0
+# ─── Start application stack ─────────────────────────────────────────────────
+echo "Starting application stack (docker compose up -d)..."
+docker compose up -d
+
+# ─── Wait for backend health ─────────────────────────────────────────────────
+echo "Waiting for backend to become healthy..."
+MAX_RETRIES=60
+RETRY_COUNT=0
+until docker compose exec -T backend wget -qO- http://localhost:3000/api/health >/dev/null 2>&1; do
+  RETRY_COUNT=$((RETRY_COUNT + 1))
+  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+    echo "ERROR: Backend did not become healthy within $(( MAX_RETRIES * 3 ))s."
+    echo "──── docker compose logs (last 50 lines) ────"
+    docker compose logs --tail=50
+    exit 1
+  fi
+  echo "  Waiting for backend... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+  sleep 3
+done
+echo "Backend is healthy. Starting test run..."
+
+# ─── Run all tests inside the test-runner container ──────────────────────────
+# docker compose run activates the "test" profile automatically for this service.
+# --rm removes the container after it exits; exit code propagates to this script.
+docker compose run --rm test-runner

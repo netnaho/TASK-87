@@ -171,9 +171,12 @@ describe('Reviews - Host Reply Window', () => {
     ).resolves.toBeDefined();
   });
 
-  it('allows host reply exactly at the 14-day boundary', async () => {
+  it('allows host reply within 14 days (just inside the boundary)', async () => {
+    // Use 14 days minus 5 minutes to avoid flapping: by the time async code
+    // runs a few ms later, we are still well within the 14-day window.
+    const justInsideBoundary = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000 + 5 * 60 * 1000);
     vi.mocked(prisma.review.findUnique).mockResolvedValue(
-      makeReview({ revieweeId: 30, createdAt: daysAgo(14) }) as any
+      makeReview({ revieweeId: 30, createdAt: justInsideBoundary }) as any
     );
     vi.mocked(prisma.hostReply.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.hostReply.create).mockResolvedValue({

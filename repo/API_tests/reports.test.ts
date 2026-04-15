@@ -99,6 +99,66 @@ describe('Reports API', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
     });
+
+    it('GET /api/reports/review-efficiency returns metrics for manager', async () => {
+      const res = await api
+        .get('/api/reports/review-efficiency')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      // Response is an array of daily efficiency rows (may be empty on a fresh stack)
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it('GET /api/reports/review-efficiency returns metrics for admin', async () => {
+      const res = await api
+        .get('/api/reports/review-efficiency')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it('GET /api/reports/review-efficiency returns 403 for guest', async () => {
+      await api
+        .get('/api/reports/review-efficiency')
+        .set('Authorization', `Bearer ${guestToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/reports/review-efficiency returns 403 for host', async () => {
+      await api
+        .get('/api/reports/review-efficiency')
+        .set('Authorization', `Bearer ${hostToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/reports/review-efficiency returns 403 for frontdesk', async () => {
+      await api
+        .get('/api/reports/review-efficiency')
+        .set('Authorization', `Bearer ${frontdeskToken}`)
+        .expect(403);
+    });
+
+    it('GET /api/reports/review-efficiency returns 401 without auth', async () => {
+      await api
+        .get('/api/reports/review-efficiency')
+        .expect(401);
+    });
+
+    it('GET /api/reports/review-efficiency rows have expected metric fields when data exists', async () => {
+      const res = await api
+        .get('/api/reports/review-efficiency')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .expect(200);
+
+      if (res.body.data.length > 0) {
+        const row = res.body.data[0];
+        expect(row).toHaveProperty('date');
+        expect(row).toHaveProperty('avgModerationTimeMs');
+        expect(row).toHaveProperty('appealRate');
+      }
+    });
   });
 
   // ─── KPI field shape and populated-value contract ──────────────

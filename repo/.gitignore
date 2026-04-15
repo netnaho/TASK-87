@@ -71,3 +71,4 @@ docker-compose.override.local.yml
 .claude/
 .tmp/
 CLAUDE.md
+.vite/

@@ -188,6 +188,10 @@ describe('Reviews API', () => {
     });
 
     it('POST /api/reviews/:id/reply by non-owner HOST returns 403', async () => {
+      // Clear rate limits so prior tests in this run don't bleed into this check
+      await clearRateLimits('guest');
+      await clearRateLimits('host');
+
       // Create a review targeting admin (not the host user)
       const reviewRes = await api
         .post('/api/reviews')
@@ -405,6 +409,8 @@ describe('Reviews API', () => {
     });
 
     it('POST /api/reviews/:id/follow-up multipart with numeric-string ratings works', async () => {
+      // Admin may have exhausted the per-hour review creation limit across this run
+      await clearRateLimits('admin');
       // Create a fresh review to follow up on (rate-limit might block guest; use admin)
       const baseRes = await api
         .post('/api/reviews')
